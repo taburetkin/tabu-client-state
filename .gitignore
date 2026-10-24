@@ -1,0 +1,48 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependencies
+node_modules/
+
+# Build / pack
+dist/
+build/
+*.tgz
+
+# Tests / coverage
+coverage/
+.coverage/
+.nyc_output/
+*.lcov
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Caches
+.npm
+.eslintcache
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local playground (Vite app, not part of the library)
+sandbox/
+
+# Internal leftovers (not for git or npm)
+.deprecated
+
+# Editors
+.idea/
+*.swp
+*.swo
+*~

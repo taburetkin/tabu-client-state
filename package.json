@@ -1,0 +1,31 @@
+{
+  "name": "tabu-client-state",
+  "version": "1.0.0",
+  "description": "named tokens as HTML attributes so CSS can skip @media",
+  "main": "index.js",
+  "types": "./index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.spec.js\"",
+    "test:types": "tsc -p test/tsconfig.json",
+    "coverage": "c8 --all --include=StateManager.js --include=State.js --include=source.js --include=presets.js --include=Storages.js --include=index.js --reporter=text --reporter=html --reports-dir=.coverage --temp-directory=.coverage/tmp node --test \"test/**/*.spec.js\""
+  },
+  "keywords": [
+    "state",
+    "client-state",
+    "responsive",
+    "fe"
+  ],
+  "author": "dimtabu <dima.taburetkin@gmail.com>",
+  "license": "ISC",
+  "devDependencies": {
+    "c8": "^12.0.0",
+    "typescript": "^7.0.2"
+  }
+}

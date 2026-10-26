@@ -21,6 +21,7 @@ export class State {
 
 	#hooks;
 	#proxyHooks;
+	
 
 	constructor({ id, attrName, attrTarget, source, value, attrValue, storages, hooks, proxyHooks } = {}) {
 		this.id = String(id);
@@ -50,7 +51,10 @@ export class State {
 
 	}
 
-	get value() { return this.#value; }
+	get value() { 
+		this.#ensureAlive();
+		return this.#value; 
+	}
 	set value(newValue) {
 		this.set(newValue)
 	}
@@ -67,39 +71,37 @@ export class State {
 	#sync() { this.#source.sync(); }
 
 	#initSource() {
-		const source = this.#createSource();
-		this.#setSource(source);
-	}
-
-	#createSource() {
-		return createSource(this.#sourceOptions, this.#valueGetter, this.#updateForSource);
-	}
-
-	#setSource(source) {
-		this.#ensureAlive();
+		const source = createSource(this.#sourceOptions, this.#valueGetter, this.#updateForSource);
 		this.#source = source;
-		this.#syncSource();
+		
 	}
+
 
 	set(value, storageIdentifier) {
-		const shouldClear = value === undefined;
 		this.#ensureAlive();
+
+		const shouldClear = value === undefined;
 		this.#locked = !shouldClear;
 		this.#tryOverride(value, storageIdentifier);
 
-		if (shouldClear) this.#sync();
-		else this.#setValue(value);
-		
-		this.#syncSource();
+		if (shouldClear) {
+			this.isStarted && this.#source.start();
+			this.#sync();
+		}
+		else {
+			this.#source.stop();
+			this.#setValue(value);
+		}
 	}
 
 	#setValue(value) {
 		const changed = value !== this.value;
 		changed && (this.#value = value);
-		this.#updateTarget();
-		if (this.isStarted && changed) {
+		this.#setTargetAttribute(this.#toAttr(this.value));
+
+		if (this.isStarted && changed) 
 			this.#callHook('change', this.id, this.value);
-		}
+
 	}
 
 	#callHook(hook, ...args) {
@@ -123,10 +125,7 @@ export class State {
 		return this.#storages.read(this.id, false);
 	}
 
-	#updateTarget() {
-		if (!this.isStarted) return;
-		this.#setTargetAttribute(this.#toAttr(this.value));
-	}
+
 
 	#toAttr(value) {
 		return this.#attrValue ? this.#attrValue(value) : value;
@@ -136,13 +135,6 @@ export class State {
 		setAttr(this.attrTarget, this.attrName, value);
 	}
 
-	#syncSource() {
-		if (this.isStarted && !this.#locked) return this.#source.start();
-		this.#source.stop();
-	}
-
-
-
 	start() {
 		this.#ensureAlive();
 		if (this.isStarted) return;
@@ -150,20 +142,12 @@ export class State {
 		this.#callHook('before:start', this.id);
 
 		let overrided = this.#locked ? this.#value : this.#getOverride();
-		let shouldLock = overrided !== undefined && !this.#locked;
+		let hasOverrided = overrided !== undefined;
+		let shouldLock = hasOverrided && !this.#locked;
 		if (shouldLock) this.#locked = true;
 
+		this.#source.start();
 		this.isStarted = true;
-		let startState = this.#source.start();
-
-		if (startState === false) {
-			this.isStarted = false;
-			if (shouldLock) {
-				this.#locked = false;
-			}
-			this.#callHook('start:fail', this.id);
-			return;
-		}
 
 		if (this.#locked) {
 			this.#source.stop();
@@ -173,17 +157,14 @@ export class State {
 			this.#sync();
 		}
 
-
 		this.#callHook('start', this.id, this.value);
-
 	}
 
 	stop() {
 		if (!this.isStarted) return;
 		this.#callHook('before:stop', this.id);
-
+		this.#source.stop();
 		this.isStarted = false;
-		this.#syncSource();
 		this.#callHook('stop', this.id);
 
 	}
@@ -222,7 +203,6 @@ function setAttr(el, name, value) {
 export const stateHookNames = [
 	'before:start',
 	'start',
-	'start:fail',
 	'before:stop',
 	'stop',
 	'before:destroy',

@@ -5,7 +5,7 @@ export type SourceCtx = {
 };
 
 type SourceListeners = {
-	bind: (ctx: SourceCtx) => unknown;
+	bind: (ctx: SourceCtx) => void;
 	unbind: (ctx: SourceCtx) => void;
 };
 
@@ -19,7 +19,7 @@ export type SourceOptions = {
 export type Source = {
 	sync: () => void;
 	readonly isStarted: boolean;
-	start(): false | void;
+	start(): void;
 	stop(): void;
 };
 

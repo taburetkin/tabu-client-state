@@ -118,7 +118,7 @@ Every public name, with signatures, is in [reference.md](reference.md).
 
 - One token, two readers: CSS keys off the attribute, JS keys off `values`.
 - Overrides are first-class. Pin in memory, or persist to `localStorage` / `sessionStorage`. Detect pauses until you unlock.
-- Tests pin `cs.values.vp = 'xs'` and get the `xs` rules on a 1440px window. No resize, no `matchMedia` mock for the stylesheet.
+- Tests pin `cs.values.vp = 'xs'` and get the `xs` rules. The stylesheet does not need a resize.
 - A state is an ordinary object. Presets are factories for that object. Mutate what they return, or skip them.
 - `hooks` are optional slots. Plug in the bus you already have. The library does not import one.
 - ESM, adjacent `.d.ts`, zero runtime dependencies. Throttle and debounce are not in the package.
@@ -136,7 +136,7 @@ cs.values.dark = true
 <html data-vp="xs" data-color-scheme="dark">
 ```
 
-The `xs` + `dark` rules apply on a 1440px desktop window. Screenshots, jsdom, and component tests pin a token and assert layout. You can still unit-test `value`; you do not need `value` to test the CSS.
+The `xs` + `dark` rules apply on a 1440px desktop window. A test pins the token and asserts layout. You do not resize the window to test the CSS. You still need a browser — or mocks of the APIs the presets you add actually call. See [Where it runs](#where-it-runs).
 
 `@media (max-width: 767px)` and `prefers-color-scheme` are read-only. A person cannot say “compact layout on my ultrawide” or “dark, even if the OS is light”.
 
@@ -150,11 +150,12 @@ The CSS does not change. Persist theme and density; leave viewport live if pinni
 
 ### What it will not do
 
+- It writes named tokens as HTML attributes. That is the product. It is not a store, a CSS framework, an event bus, a polyfill, or a test kit.
 - It does not auto-start in the constructor.
 - It does not replace every media query (print, raw pointer capability — keep those if they are device facts, not user choices).
-- It is not a reactive store (`hooks` are optional slots; `values` is the read).
 - It is not a place to stash measurements (`innerWidth`).
-- It does not ship throttle / debounce.
+- It does not ship throttle / debounce, source factories, or token helpers. Five named presets; anything else is `{ id, value, source }`.
+- It does not polyfill `matchMedia`, `ResizeObserver`, or storage. A test environment that lacks them supplies mocks.
 - It does not clear storage for you.
 - It does not own the first HTML frame. No SSR renderer, no attributes until `start()`. A page that must look finished before the application runs should keep `@media`. An HTML UI app starts, then this library writes the tokens.
 - It does not catch errors from hooks you passed.
@@ -178,7 +179,21 @@ You add states. Named presets (`viewport`, `workspace`, `hover`, `colorScheme`, 
 
 ### Where it runs
 
-Browser-only. The constructor reads `document.documentElement` unless you pass `attrTarget`. Sources may use `window`, `matchMedia`, `ResizeObserver`, or your own `bind`. Storage uses `localStorage` / `sessionStorage` and swallows a missing API.
+A browser page. The library calls browser objects. It does not invent them, and it does not soften their absence.
+
+The manager reads `document.documentElement` unless you pass `attrTarget`. That node needs `getAttribute`, `setAttribute`, and `removeAttribute`.
+
+Storage uses `localStorage` and `sessionStorage`. A missing or blocked API is swallowed. That is the only environment hole the library covers.
+
+Named presets use these APIs. If you `add` the preset, they must exist — a test runner stubs them.
+
+| You add | Needs |
+| --- | --- |
+| `viewport` | `window.matchMedia` |
+| `hover`, `colorScheme`, `orientation` | `window.matchMedia` (read on `add`) |
+| `workspace` | `ResizeObserver` when there is a target, and `clientWidth` on that node |
+
+A custom `bind` uses whatever you call.
 
 The package is ESM. A page loads it with a bundler or `<script type="module">`. `require()` does not load it. The syntax floor is private fields (`#states`) plus `?.` and `??`.
 
@@ -192,7 +207,7 @@ Three shapes. Optional on all of them: `attrName`, `attrTarget`, `attrValue`, `h
 | `{ id, value }` | Manual with a default. `value` is a function or a constant | `id`, `value` |
 | `{ id, value, source: { bind, unbind } }` | Autodetect. `target` is optional | `id`, `value`, `bind`, `unbind` |
 
-If either `bind` or `unbind` is present, both must be functions, and `value` must be a function. Otherwise the runtime throws `bind must be a function`, `unbind must be a function`, or `value must be a function`. A manual state omits the pair. A function `value` runs on start and on `set(undefined)`. A constant `value` is that default: start publishes it, `set(undefined)` restores it. `{ id }` unlocks to `undefined`.
+If either `bind` or `unbind` is present, both must be functions, and `value` must be a function. Otherwise the runtime throws `bind must be a function`, `unbind must be a function`, or `value must be a function`. A manual state omits the pair. A function `value` runs on start and on unlock (`values.id = undefined` or `storeValue(id, undefined)`). A constant `value` is that default: start publishes it, unlock restores it. `{ id }` unlocks to `undefined`.
 
 Constructor **registers** states. It does not start them, does not write attributes, does not set values. `start()` does.
 
@@ -215,12 +230,12 @@ cs.add(colorScheme())
 cs.values.dark // true — <html data-color-scheme="dark">
 ```
 
-An element that does not exist yet. `bind` fails until there is a node; pass `target` on the preset or call `setTarget`.
+An element that does not exist yet. Pass `target` on the preset or call `setTarget` when the node is there.
 
 ```js
 cs.add(workspace())
-cs.start()                    // bind fails until there is a node
-cs.setTarget('ws', columnEl)  // starts, writes data-ws
+cs.start()                    // started; no node yet, no token
+cs.setTarget('ws', columnEl)  // observes, writes data-ws
 ```
 
 The same attribute can sit on `<html>` and `<body>` — two states, one `attrName`:
@@ -252,12 +267,11 @@ Pin is `cs.values.id = x` or `storeValue`. Unlock is `= undefined`: wipe storage
 | `start`, live detect | `value()` | write | if ≠ |
 | `start`, memory pin | keep pin | write | if ≠ |
 | `start`, storage hit | stored, then lock | write | if ≠ |
-| `start`, `bind` false | unchanged | — | no |
 | pin, started | pin, lock | write | if ≠ |
-| pin, stopped | pin, lock | leave | no |
+| pin, stopped | pin, lock | write | no |
 | `start` after that pin | keep pin | write | if ≠ |
 | unlock, started | live / constant / `undefined` | write | if ≠ pin |
-| unlock, stopped | live / constant / `undefined` | leave | no |
+| unlock, stopped | live / constant / `undefined` | write | no |
 | source tick, live | `value()` | write | if ≠ |
 | source tick, locked | — | leave | no |
 | `stop` | keep | leave | no |
@@ -288,7 +302,7 @@ cs.add({
 
 `bind`, `unbind`, and `value` share one `ctx`. It already has `target` (from `source.target`) and `callback` (call it to re-run `value` and publish). `bind` may store more on it — `value` sees those fields.
 
-On start, `bind` runs. If the state is already locked in memory, that slot is published and detect stays paused. Else a stored override is published and the state locks. Else `value` runs once. The listener should call `ctx.callback()`. On stop, `ctx.callback.cancel?.()` then `unbind`. `bind` returning `false` aborts start: no attribute, `unbind` is not called.
+On start, `bind` runs. If the state is already locked in memory, that slot is published and detect stays paused. Else a stored override is published and the state locks. Else `value` runs once. The listener should call `ctx.callback()`. On stop, `ctx.callback.cancel?.()` then `unbind`. The return of `bind` is ignored.
 
 A function `target` is called on `add` / `setTarget`, not on `start`.
 
@@ -378,7 +392,7 @@ A named slot runs, then `all`, then the manager wire. `this` is the state for st
 
 Overwrite `proxyHooks` with `false` to turn the manager wire off — on `stateOptions` for every state, or on one `add`. Prefer `false`. A function in that slot is at your own risk.
 
-`start` receives `(id, value)`. `start:fail` fires when `bind` returns `false` and receives `id`. `before*` is a notice, not a veto. When `change` fires — [the table](#slot-attribute-change).
+`start` receives `(id, value)`. `before*` is a notice, not a veto. When `change` fires — [the table](#slot-attribute-change).
 
 A throw in a hook you passed stops the call and the method that invoked it. The library does not catch it. If you need a callback to isolate its own errors, wrap it yourself — for example with `tabu-js-res`.
 

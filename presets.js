@@ -5,7 +5,7 @@ function applyLimit(fn, limit) {
 function listen(name) {
 	return {
 		bind(ctx) {
-			if (!ctx.target) return false;
+			if (!ctx.target) return;
 			ctx.target.addEventListener(name, ctx.callback);
 		},
 		unbind(ctx) {
@@ -27,13 +27,13 @@ export function resizeElement({ target, limit } = {}) {
 	return {
 		target,
 		bind(ctx) {
-			if (!ctx.target) return false;
+			if (!ctx.target) return;
 			ctx.callback = applyLimit(ctx.callback, limit);
 			ctx.observer = new ResizeObserver(() => ctx.callback());
 			ctx.observer.observe(ctx.target);
 		},
 		unbind(ctx) {
-			ctx.observer.disconnect();
+			ctx.observer?.disconnect();
 		}
 	};
 }
@@ -112,7 +112,6 @@ export function viewport({ id = 'vp', attrName = dataAttr(id), sizes = VIEWPORT_
 		id,
 		attrName,
 		value() {
-			if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
 			for (let i = queries.length - 1; i >= 0; i--) {
 				const [name, query] = queries[i];
 				if (window.matchMedia(query).matches) return name;
@@ -120,7 +119,6 @@ export function viewport({ id = 'vp', attrName = dataAttr(id), sizes = VIEWPORT_
 		},
 		source: {
 			bind(ctx) {
-				if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
 				ctx.onMedia = () => {
 					if (ctx.scheduled) return;
 					ctx.scheduled = true;

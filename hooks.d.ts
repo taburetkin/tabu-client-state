@@ -4,7 +4,6 @@ import type { StateManager } from './StateManager.js';
 export type StateHookName =
 	| 'before:start'
 	| 'start'
-	| 'start:fail'
 	| 'before:stop'
 	| 'stop'
 	| 'before:destroy'
@@ -16,7 +15,6 @@ export type ManagerHookName =
 	| 'add'
 	| 'before:state:start'
 	| 'state:start'
-	| 'state:start:fail'
 	| 'before:state:stop'
 	| 'state:stop'
 	| 'before:state:destroy'
@@ -34,7 +32,6 @@ export type StateHooks = {
 	all?: (this: StateHookHost, hook: StateHookName, ...args: unknown[]) => void;
 	beforeStart?: (this: StateHookHost, id: string) => void;
 	start?: (this: StateHookHost, id: string, value: unknown) => void;
-	startFail?: (this: StateHookHost, id: string) => void;
 	beforeStop?: (this: StateHookHost, id: string) => void;
 	stop?: (this: StateHookHost, id: string) => void;
 	beforeDestroy?: (this: StateHookHost, id: string) => void;
@@ -48,7 +45,6 @@ export type ManagerHooks = {
 	add?: (this: StateManager, id: string) => void;
 	beforeStateStart?: (this: StateManager, id: string) => void;
 	stateStart?: (this: StateManager, id: string, value: unknown) => void;
-	stateStartFail?: (this: StateManager, id: string) => void;
 	beforeStateStop?: (this: StateManager, id: string) => void;
 	stateStop?: (this: StateManager, id: string) => void;
 	beforeStateDestroy?: (this: StateManager, id: string) => void;

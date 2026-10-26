@@ -51,11 +51,11 @@ describe('hooks', () => {
 	it('maps colon names to camelCase', () => {
 		assert.equal(toCamelCase('change'), 'change');
 		assert.equal(toCamelCase('before:start'), 'beforeStart');
-		assert.equal(toCamelCase('start:fail'), 'startFail');
 		assert.equal(toCamelCase('before:state:start'), 'beforeStateStart');
-		assert.equal(toCamelCase('state:start:fail'), 'stateStartFail');
+		assert.equal(toCamelCase('state:change'), 'stateChange');
 		assert.ok(stateHookNames.includes('change'));
 		assert.ok(stateHookNames.includes('before:start'));
+		assert.equal(stateHookNames.includes('start:fail'), false);
 	});
 
 	describe('callHook', () => {
@@ -137,14 +137,14 @@ describe('hooks', () => {
 			state.set('while-stopped');
 			assert.equal(seen.length, 2);
 			assert.equal(state.value, 'while-stopped');
-			assert.equal(el.getAttribute('data-x'), 'held');
+			assert.equal(el.getAttribute('data-x'), 'while-stopped');
 			state.start();
 			assert.equal(seen.length, 2);
 			assert.equal(state.value, 'while-stopped');
 			assert.equal(el.getAttribute('data-x'), 'while-stopped');
 		});
 
-		it('does not notify change when bind returns false; start:fail fires instead', () => {
+		it('starts and notifies when bind returns false', () => {
 			const seen = [];
 			const state = new State({
 				id: 'data-ws',
@@ -154,7 +154,6 @@ describe('hooks', () => {
 				source: { bind() { return false; }, unbind() {} },
 				hooks: {
 					change() { seen.push('change'); },
-					startFail(id) { seen.push(['fail', id, this.isStarted]); },
 					start(id, value) { seen.push(['start', id, value]); },
 					all(hook) { seen.push(['all', hook]); },
 				},
@@ -162,10 +161,12 @@ describe('hooks', () => {
 			state.start();
 			assert.deepEqual(seen, [
 				['all', 'before:start'],
-				['fail', 'data-ws', false],
-				['all', 'start:fail'],
+				'change',
+				['all', 'change'],
+				['start', 'data-ws', 'xs'],
+				['all', 'start'],
 			]);
-			assert.equal(state.isStarted, false);
+			assert.equal(state.isStarted, true);
 		});
 
 		it('passes the published value to start', () => {

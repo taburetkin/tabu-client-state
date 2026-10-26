@@ -39,7 +39,7 @@ describe('source', () => {
 		source.stop();
 	});
 
-	it('returns false from start when bind cannot attach', () => {
+	it('starts even when bind returns false', () => {
 		const source = createSource(
 			{
 				bind() { return false; },
@@ -48,8 +48,8 @@ describe('source', () => {
 			() => 'x',
 			() => {}
 		);
-		assert.equal(source.start(), false);
-		assert.equal(source.isStarted, false);
+		assert.equal(source.start(), undefined);
+		assert.equal(source.isStarted, true);
 	});
 
 	it('runs a function, a missing value, and a constant without listeners', () => {
@@ -78,6 +78,27 @@ describe('source', () => {
 		assert.throws(() => createSource({ bind() {}, unbind() {} }, undefined, update), /value must be a function/);
 		assert.throws(() => createSource({ bind: 1, unbind() {} }, () => 'x', update), /bind must be a function/);
 		assert.throws(() => createSource({ bind() {}, unbind: 1 }, () => 'x', update), /unbind must be a function/);
+	});
+
+	it('gives bind the raw callback on every start', () => {
+		const given = [];
+		const source = createSource(
+			{
+				bind(ctx) {
+					given.push(ctx.callback);
+					const raw = ctx.callback;
+					ctx.callback = () => raw();
+				},
+				unbind() {},
+			},
+			() => 'x',
+			() => {}
+		);
+		source.start();
+		source.stop();
+		source.start();
+		assert.equal(new Set(given).size, 1);
+		assert.equal(given.length, 2);
 	});
 
 	it('cancels ctx.callback on stop', () => {

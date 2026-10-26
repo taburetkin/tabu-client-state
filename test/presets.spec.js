@@ -311,12 +311,12 @@ describe('viewport', () => {
 		assert.deepEqual(seen, ['xl']);
 	});
 
-	it('does not start without matchMedia', () => {
+	it('needs matchMedia to read and bind', () => {
 		const prev = window.matchMedia;
 		delete window.matchMedia;
 		const state = viewport();
-		assert.equal(state.value(), undefined);
-		assert.equal(state.source.bind({ callback() {} }), false);
+		assert.throws(() => state.value());
+		assert.throws(() => state.source.bind({ callback() {} }));
 		window.matchMedia = prev;
 	});
 
@@ -347,7 +347,7 @@ describe('event, mediaQuery, resizeWindow, resizeElement, timer', () => {
 		dom.restore();
 	});
 
-	it('binds a named event and refuses a missing target', () => {
+	it('binds a named event and no-ops a missing target', () => {
 		const node = fakeTarget();
 		const click = createSource(
 			event({ event: 'click', target: node }),
@@ -359,11 +359,13 @@ describe('event, mediaQuery, resizeWindow, resizeElement, timer', () => {
 		click.stop();
 
 		const unbound = event({ event: 'click' });
-		assert.equal(unbound.bind({ callback() {} }), false);
+		assert.equal(unbound.bind({ callback() {} }), undefined);
 		assert.equal(unbound.unbind({ callback() {} }), undefined);
 
 		const missing = createSource(unbound, () => 'ok', () => {});
-		assert.equal(missing.start(), false);
+		assert.equal(missing.start(), undefined);
+		assert.equal(missing.isStarted, true);
+		missing.stop();
 	});
 
 	it('binds a media query and falls back to matchMedia', () => {
@@ -433,7 +435,7 @@ describe('event, mediaQuery, resizeWindow, resizeElement, timer', () => {
 		passthrough.stop();
 	});
 
-	it('observes an element and disconnects; bind fails without a target', () => {
+	it('observes an element and disconnects; bind no-ops without a target', () => {
 		const node = fakeTarget();
 		const source = createSource(
 			resizeElement({ target: node }),
@@ -449,7 +451,9 @@ describe('event, mediaQuery, resizeWindow, resizeElement, timer', () => {
 			() => 10,
 			() => {}
 		);
-		assert.equal(missing.start(), false);
+		assert.equal(missing.start(), undefined);
+		assert.equal(missing.isStarted, true);
+		missing.stop();
 	});
 
 	it('runs a timer source', () => {

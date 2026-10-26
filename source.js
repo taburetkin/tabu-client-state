@@ -15,7 +15,7 @@ class Source {
 
 	start() {
 		if (this.isStarted) return;
-		if (this.#start() === false) return false;
+		this.#start();
 		this.#started = true;
 	}
 
@@ -46,14 +46,15 @@ export function createSource(source, value, update) {
 		value = () => arg;
 	}
 
-	const sync = ctx.callback = () => {
-		update(value(ctx));
-	};
+	const sync = ctx.callback = () => { update(value(ctx)); };
 
 
 
 	ctx.target = invoke(target);
-	const start = () => hasBind ? bind(ctx) : undefined;
+	const start = () => {
+		ctx.callback = sync;
+		hasBind && bind(ctx);
+	};
 	const stop = () => {
 		cancelCallback(ctx.callback);
 		hasUnbind && unbind(ctx);

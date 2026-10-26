@@ -50,7 +50,6 @@ const stateHooks: StateHooks = {
 		void _id;
 		void value;
 	},
-	startFail(id) { void id; },
 };
 const _pubHooks: PubStateHooks = stateHooks;
 void _pubHooks;

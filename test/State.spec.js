@@ -97,7 +97,7 @@ describe('State', () => {
 		assert.equal(el.getAttribute('data-x'), 'xs');
 	});
 
-	it('rolls start back when bind cannot attach', () => {
+	it('starts even when bind returns false', () => {
 		const el = new FakeElement();
 		const state = new State({
 			id: 'data-ws',
@@ -107,9 +107,9 @@ describe('State', () => {
 			source: { bind() { return false; }, unbind() {} },
 		});
 		state.start();
-		assert.equal(state.isStarted, false);
-		assert.equal(state.value, undefined);
-		assert.equal(el.getAttribute('data-ws'), null);
+		assert.equal(state.isStarted, true);
+		assert.equal(state.value, 'xs');
+		assert.equal(el.getAttribute('data-ws'), 'xs');
 	});
 
 	it('locks an override, persists it, and clears both storages on undefined', () => {
@@ -345,7 +345,7 @@ describe('State', () => {
 		state.set('while-stopped');
 		assert.equal(seen.length, 2);
 		assert.equal(state.value, 'while-stopped');
-		assert.equal(el.getAttribute('data-x'), 'held');
+		assert.equal(el.getAttribute('data-x'), 'while-stopped');
 
 		state.start();
 		assert.equal(seen.length, 2);
@@ -379,7 +379,7 @@ describe('State', () => {
 			const state = liveState(el);
 			state.set('memory');
 			assert.equal(state.value, 'memory');
-			assert.equal(el.getAttribute('data-x'), null);
+			assert.equal(el.getAttribute('data-x'), 'memory');
 			state.start();
 			assert.equal(state.value, 'memory');
 			assert.equal(el.getAttribute('data-x'), 'memory');
@@ -522,10 +522,9 @@ describe('State', () => {
 		assert.equal(live.value, 'live');
 	});
 
-	it('does not keep a storage lock when bind fails', () => {
+	it('locks storage on start even when bind returns false', () => {
 		withStorages((_local, session) => {
 			session.setItem('t.data-x', stored('from-session'));
-			let allow = false;
 			const el = new FakeElement();
 			const state = new State({
 				id: 'data-x',
@@ -533,22 +532,18 @@ describe('State', () => {
 				storages: new Storages('t.'),
 				value: () => 'live',
 				source: {
-					bind() { if (!allow) return false; },
+					bind() { return false; },
 					unbind() {},
 				},
 			});
 			state.start();
-			assert.equal(state.isStarted, false);
-			assert.equal(state.value, undefined);
-			allow = true;
-			state.start();
+			assert.equal(state.isStarted, true);
 			assert.equal(state.value, 'from-session');
 			assert.equal(el.getAttribute('data-x'), 'from-session');
 		});
 	});
 
-	it('keeps a memory pin when bind fails', () => {
-		let allow = false;
+	it('publishes a memory pin on start even when bind returns false', () => {
 		const el = new FakeElement();
 		const state = new State({
 			id: 'data-x',
@@ -556,17 +551,13 @@ describe('State', () => {
 			storages: new Storages('t.'),
 			value: () => 'live',
 			source: {
-				bind() { if (!allow) return false; },
+				bind() { return false; },
 				unbind() {},
 			},
 		});
 		state.set('held');
 		state.start();
-		assert.equal(state.isStarted, false);
-		assert.equal(state.value, 'held');
-		assert.equal(el.getAttribute('data-x'), null);
-		allow = true;
-		state.start();
+		assert.equal(state.isStarted, true);
 		assert.equal(state.value, 'held');
 		assert.equal(el.getAttribute('data-x'), 'held');
 	});
@@ -602,7 +593,7 @@ describe('State', () => {
 		assert.equal(el.getAttribute('data-x'), 'two');
 	});
 
-	it('does not notify change when start cannot attach', () => {
+	it('notifies change on start even when bind returns false', () => {
 		const seen = [];
 		const el = new FakeElement();
 		const state = new State({
@@ -616,8 +607,8 @@ describe('State', () => {
 			source: { bind() { return false; }, unbind() {} },
 		});
 		state.start();
-		assert.deepEqual(seen, []);
-		assert.equal(state.isStarted, false);
+		assert.deepEqual(seen, ['change']);
+		assert.equal(state.isStarted, true);
 	});
 
 	it('refuses to run after destroy', () => {

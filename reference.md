@@ -288,7 +288,7 @@ A named hook runs, then `all`, then the manager wire. `this` is the state for [`
 
 Overwrite [`proxyHooks`](#StateOptions) with `false` to turn the manager wire off — on `stateOptions` for every state, or on one `add`. Prefer `false`. A function in that slot is at your own risk: it is called as a method of the state.
 
-When [`change`](#StateHooks) fires — [README table](README.md#slot-attribute-change). `start` receives `(id, value)`. `start:fail` fires when `bind` returns `false` and receives `id`. `before*` is a notice, not a veto.
+When [`change`](#StateHooks) fires — [README table](README.md#slot-attribute-change). `start` receives `(id, value)`. `before*` is a notice, not a veto.
 
 A throw in a hook you passed stops the call and the method that invoked it. The library does not catch it. If you need a callback to isolate its own errors, wrap it yourself — for example with `tabu-js-res`.
 
@@ -306,8 +306,7 @@ One slot per name. A second `change` on the same bag replaces the first. Many li
 | --- | --- | --- |
 | `all` | `(hook: `[`StateHookName`](#StateHookName)`, ...args) => void` | Every state hook. First argument is the colon name |
 | `beforeStart` | `(id: string) => void` | Before start work. Not a veto |
-| `start` | `(id: string, value: unknown) => void` | After a successful start |
-| `startFail` | `(id: string) => void` | `bind` returned `false` |
+| `start` | `(id: string, value: unknown) => void` | After start |
 | `beforeStop` | `(id: string) => void` | Before stop |
 | `stop` | `(id: string) => void` | After stop |
 | `beforeDestroy` | `(id: string) => void` | Before destroy |
@@ -327,7 +326,6 @@ One slot per name. A second `change` on the same bag replaces the first. Many li
 | `add` | `(id: string) => void` | After the state is registered |
 | `beforeStateStart` | `(id: string) => void` | State `before:start` |
 | `stateStart` | `(id: string, value: unknown) => void` | State `start` |
-| `stateStartFail` | `(id: string) => void` | State `start:fail` |
 | `beforeStateStop` | `(id: string) => void` | State `before:stop` |
 | `stateStop` | `(id: string) => void` | State `stop` |
 | `beforeStateDestroy` | `(id: string) => void` | State `before:destroy` |
@@ -420,14 +418,14 @@ When to run `value` again. `bind` and `unbind` are a pair: both omitted, or both
 
 `bind`, `unbind`, and `value` share one [`SourceCtx`](#SourceCtx). Before `bind` it already has `target` and `callback` (call it to re-run `value` and publish). `bind` may put more on it — `value` and `unbind` see those fields.
 
-On [`start`](#start), `bind` runs. If the state is already locked in memory, that slot is published and detect stays paused. Else a stored override is published and the state locks. Else `value` runs once. Later, the listener should call `ctx.callback()`. On [`stop`](#stop), `ctx.callback.cancel?.()` then `unbind`. `bind` returning `false` aborts start: no attribute, `unbind` is not called.
+On [`start`](#start), `bind` runs. If the state is already locked in memory, that slot is published and detect stays paused. Else a stored override is published and the state locks. Else `value` runs once. Later, the listener should call `ctx.callback()`. On [`stop`](#stop), `ctx.callback.cancel?.()` then `unbind`. The return of `bind` is ignored.
 
 A function `target` is called when the source is set up ([`add`](#add) / [`setTarget`](#setTarget)), not on `start`. [`setTarget`](#setTarget) replaces `target` and rebuilds the source.
 
 | Name | Type | Required | Description |
 | --- | --- | --- | --- |
 | `target` | `unknown \| (() => unknown)` | no | Becomes `ctx.target`. A function is called; anything else is used as-is |
-| `bind` | `(ctx: `[`SourceCtx`](#SourceCtx)`) => unknown` | pair | Attach the listener. Return `false` to abort start. Required together with `unbind` |
+| `bind` | `(ctx: `[`SourceCtx`](#SourceCtx)`) => void` | pair | Attach the listener. Required together with `unbind` |
 | `unbind` | `(ctx: `[`SourceCtx`](#SourceCtx)`) => void` | pair | Detach. Runs after `ctx.callback.cancel?.()`. Required together with `bind` |
 
 Omitted `source` is a manual state. `{ id }` unlocks to `undefined`. `{ id, value }` runs the function, or restores the constant, on start / unlock. If either listener is present, `bind`, `unbind`, and `value` must all be functions (`bind must be a function`, `unbind must be a function`, `value must be a function`).
@@ -476,7 +474,7 @@ const cs = new StateManager({
 cs.start()
 ```
 
-Each factory returns [`StateOptions`](#StateOptions) for [`add`](#add). Omit options for the defaults. Pass only the knobs below; anything else — mutate the object they return, or skip the preset.
+Each factory returns [`StateOptions`](#StateOptions) for [`add`](#add). Omit options for the defaults. Pass only the knobs below; anything else — mutate the object they return, or skip the preset. They call browser APIs (`matchMedia`, `ResizeObserver`). A test environment stubs those — [README: Where it runs](README.md#where-it-runs).
 
 | Preset | `id` | Attribute | JS value | Attribute tokens |
 | --- | --- | --- | --- | --- |
@@ -500,7 +498,7 @@ cs.add(viewport())
 
 Window width as a size token. Overlapping `min-width` queries; the token is the last match. Changes are coalesced on a microtask so several queries flipping together become one update.
 
-No `limit`, no `target`. Always reads `window.matchMedia`. Missing `matchMedia` → `value()` is `undefined` and `bind` returns `false`.
+No `limit`, no `target`. Reads `window.matchMedia`. A test environment without that API supplies a mock — the preset does not.
 
 A bound is inclusive on the next token (`768` is `sm`, not `xs`). Custom `sizes` follow the same rule: first token is `all`, each later name is `(min-width: ${previousBound}px)`.
 
@@ -547,7 +545,7 @@ cs.add(workspace())
 
 An element’s `clientWidth` as a size token, via `ResizeObserver`.
 
-Without a target, `bind` returns `false`. `value()` maps `clientWidth` onto `sizes`: the first token whose bound is above the width, or the last token if the width reaches every bound. Without a node, `undefined`.
+Without a target, `bind` is a no-op. `value()` maps `clientWidth` onto `sizes`: the first token whose bound is above the width, or the last token if the width reaches every bound. Without a node, `undefined`.
 
 **Parameters**
 
@@ -691,11 +689,11 @@ Argument of [`hover`](#hover), [`colorScheme`](#colorScheme), and [`orientation`
 
 <a id="StateHookName"></a>
 
-**StateHookName.** `'before:start' \| 'start' \| 'start:fail' \| 'before:stop' \| 'stop' \| 'before:destroy' \| 'destroy' \| 'change'`.
+**StateHookName.** `'before:start' \| 'start' \| 'before:stop' \| 'stop' \| 'before:destroy' \| 'destroy' \| 'change'`.
 
 <a id="ManagerHookName"></a>
 
-**ManagerHookName.** `'before:add' \| 'add' \| 'before:state:start' \| 'state:start' \| 'state:start:fail' \| 'before:state:stop' \| 'state:stop' \| 'before:state:destroy' \| 'state:destroy' \| 'state:change'`.
+**ManagerHookName.** `'before:add' \| 'add' \| 'before:state:start' \| 'state:start' \| 'before:state:stop' \| 'state:stop' \| 'before:state:destroy' \| 'state:destroy' \| 'state:change'`.
 
 <a id="StateHookHost"></a>
 

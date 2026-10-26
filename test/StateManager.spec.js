@@ -165,7 +165,7 @@ describe('StateManager', () => {
 		const cs = new StateManager({ attrTarget: el });
 		cs.add(options('ws', {
 			source: {
-				bind(ctx) { if (!ctx.target) return false; },
+				bind(ctx) { if (!ctx.target) return; },
 				unbind() {},
 			},
 			value: ({ target } = {}) => target?.clientWidth,

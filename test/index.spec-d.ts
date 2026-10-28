@@ -2,6 +2,9 @@ import * as pkg from '../index.js';
 import {
 	State,
 	StateManager,
+	listen,
+	unlisten,
+	type StateListener,
 	viewport,
 	workspace,
 	hover,
@@ -24,6 +27,16 @@ void new StateManager({
 });
 
 void State;
+void listen;
+void unlisten;
+const _listener: StateListener = function (hook, state) {
+	void hook;
+	void state.id;
+	void this.id;
+};
+void _listener;
+void pkg.listen;
+void pkg.unlisten;
 void pkg.State;
 void pkg.StateManager;
 void pkg.viewport;
@@ -105,10 +118,6 @@ pkg.onChange;
 pkg.tokenByThresholds;
 // @ts-expect-error mediaQueriesFromSizes is not a package export
 pkg.mediaQueriesFromSizes;
-// @ts-expect-error listen is not a package export
-pkg.listen;
-// @ts-expect-error unlisten is not a package export
-pkg.unlisten;
 // @ts-expect-error ensureState is not a package export
 pkg.ensureState;
 // @ts-expect-error requireId is not a package export

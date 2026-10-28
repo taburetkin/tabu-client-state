@@ -4,6 +4,8 @@ import * as pkg from '../index.js';
 import {
 	State,
 	StateManager,
+	listen,
+	unlisten,
 	viewport,
 	workspace,
 	hover,
@@ -15,6 +17,8 @@ describe('index', () => {
 	it('re-exports the host and named presets', () => {
 		assert.equal(typeof State, 'function');
 		assert.equal(typeof StateManager, 'function');
+		assert.equal(typeof listen, 'function');
+		assert.equal(typeof unlisten, 'function');
 		assert.equal(typeof viewport, 'function');
 		assert.equal(typeof workspace, 'function');
 		assert.equal(typeof hover, 'function');
@@ -34,8 +38,8 @@ describe('index', () => {
 		assert.equal('getStoragesSingleton' in pkg, false);
 		assert.equal('captureStorages' in pkg, false);
 		assert.equal('State' in pkg, true);
-		assert.equal('listen' in pkg, false);
-		assert.equal('unlisten' in pkg, false);
+		assert.equal('listen' in pkg, true);
+		assert.equal('unlisten' in pkg, true);
 		assert.equal('ensureState' in pkg, false);
 		assert.equal('requireId' in pkg, false);
 	});

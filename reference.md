@@ -2,7 +2,7 @@
 
 Reference for the public API. The tour is in [README.md](README.md).
 
-The package exports [`State`](#State), [`StateManager`](#StateManager), and named presets. A preset is a factory for [`StateOptions`](#StateOptions).
+The package exports [`State`](#State), [`StateManager`](#StateManager), [`listen`](#listen) / [`unlisten`](#unlisten), and named presets. A preset is a factory for [`StateOptions`](#StateOptions).
 
 # content
 
@@ -17,6 +17,9 @@ The package exports [`State`](#State), [`StateManager`](#StateManager), and name
 		- [start()](#State-start)
 		- [stop()](#State-stop)
 		- [destroy()](#State-destroy)
+- [listen / unlisten](#listen)
+	- [listen(state, fn)](#listen-fn)
+	- [unlisten(state, fn)](#unlisten)
 - [StateManager](#StateManager)
 	- [constructor([options])](#constructor)
 	- [properties](#properties)
@@ -56,6 +59,7 @@ The package exports [`State`](#State), [`StateManager`](#StateManager), and name
 	- [StateOverrides](#StateOverrides)
 	- [StateSetOptions](#StateSetOptions)
 	- [StateSetWhere](#StateSetWhere)
+	- [StateListener](#StateListener)
 
 <a id="State"></a>
 
@@ -194,6 +198,60 @@ Stops listeners. The attribute stays. A stop when not started is a no-op.
 ### [⬆️](#State-methods) destroy()
 
 Stops the state and restores [`attrOriginValue`](#State-properties). Storage is not cleared. A second destroy is a no-op.
+
+**Returns**
+
+`void`
+
+
+<small><a href="#content">to content</a></small>
+
+<a id="listen"></a>
+
+# listen / unlisten
+
+```js
+import { listen, unlisten } from 'tabu-client-state'
+
+function onHook(hook, state, value) {
+	if (hook === 'change') console.log(state.id, value)
+}
+
+listen(vp, onHook)
+unlisten(vp, onHook)
+```
+
+Utilities, not methods on [`State`](#State). Extra observers next to [`hooks`](#hooks). They do not replace a slot. Same payload as state [`all`](#StateHooks): `(hook, state, ...args)`, `this` is the state.
+
+The same function is stored once. A non-function is ignored. [`unlisten`](#unlisten) of a function that was never added is a no-op.
+
+A named hook runs, then `all`, then these observers, then the manager wire.
+
+<a id="listen-fn"></a>
+
+## listen(state, fn)
+
+**Parameters**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `state` | [`State`](#State) | yes | State to observe |
+| `fn` | [`StateListener`](#StateListener) | yes | Called as `(hook, state, ...args)` |
+
+**Returns**
+
+`void`
+
+<a id="unlisten"></a>
+
+## unlisten(state, fn)
+
+**Parameters**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `state` | [`State`](#State) | yes | State to stop observing |
+| `fn` | [`StateListener`](#StateListener) | yes | The same function passed to [`listen`](#listen) |
 
 **Returns**
 
@@ -466,7 +524,7 @@ A missing id is ignored. An instance that is not the occupant of its id is unhoo
 
 Optional slots. The package is not an event bus. Omit `hooks` and CSS still works.
 
-Need only a value flip — [`change`](#StateHooks), or [`all`](#StateHooks) and look at the name. Need `on` / `off` / `once` — put manager [`all`](#ManagerHooks) on the bus you already have.
+Need only a value flip — [`change`](#StateHooks), or [`all`](#StateHooks) and look at the name. Need many observers without replacing that slot — [`listen`](#listen) / [`unlisten`](#unlisten). Need `on` / `off` / `once` — put manager [`all`](#ManagerHooks) or [`listen`](#listen) on the bus you already have.
 
 ```js
 const cs = new StateManager({
@@ -485,7 +543,7 @@ const cs = new StateManager({
 })
 ```
 
-A named hook runs, then `all`. On a managed state the manager wire runs after that. [`StateHooks`](#StateHooks) named slots: `this` is the state, no `id` argument, empty or `value`. [`StateHooks`](#StateHooks)`all` and every [`ManagerHooks`](#ManagerHooks) slot: `(hook, state, ...args)`, `this` is the state or the manager. State names reach the manager with a prefix (`state:change`, `before:state:start`).
+A named hook runs, then `all`, then [`listen`](#listen) observers. On a managed state the manager wire runs after that. [`StateHooks`](#StateHooks) named slots: `this` is the state, no `id` argument, empty or `value`. [`StateHooks`](#StateHooks)`all` and every [`ManagerHooks`](#ManagerHooks) slot: `(hook, state, ...args)`, `this` is the state or the manager. State names reach the manager with a prefix (`state:change`, `before:state:start`).
 
 [`before:add`](#ManagerHooks) is `(hook, stateOptions, addOptions)` — the incoming bag or instance, not necessarily a built [`State`](#State).
 
@@ -948,6 +1006,10 @@ Argument of [`hover`](#hover), [`colorScheme`](#colorScheme), and [`orientation`
 <a id="StateHookHost"></a>
 
 **StateHookHost.** `{ id: string, value: unknown, isStarted?: boolean, isDestroyed?: boolean }`. `this` inside [`StateHooks`](#StateHooks).
+
+<a id="StateListener"></a>
+
+**StateListener.** `(this: `[`State`](#State)`, hook: `[`StateHookName`](#StateHookName)`, state: `[`State`](#State)`, ...args: unknown[]) => void`. Argument of [`listen`](#listen) / [`unlisten`](#unlisten).
 
 
 <small><a href="#content">to content</a></small>

@@ -1,4 +1,4 @@
-export { State } from './State.js';
+export { State, listen, unlisten } from './State.js';
 export { StateManager } from './StateManager.js';
 export {
 	viewport,

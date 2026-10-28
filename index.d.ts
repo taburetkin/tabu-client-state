@@ -1,4 +1,4 @@
-export { State } from './State.js';
+export { State, listen, unlisten, type StateListener } from './State.js';
 export {
 	StateManager,
 	type StateManagerOptions,

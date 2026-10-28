@@ -1,4 +1,4 @@
-import { State } from '../State.js';
+import { State, listen, unlisten, type StateListener } from '../State.js';
 import { workspace } from '../presets.js';
 
 const attrTarget = {
@@ -51,6 +51,21 @@ state.subscribe(() => {});
 
 // @ts-expect-error unsubscribe is not a State method
 state.unsubscribe(() => {});
+
+const onHook: StateListener = function (hook, host, value) {
+	void hook;
+	void host.id;
+	void this.id;
+	void value;
+};
+listen(state, onHook);
+unlisten(state, onHook);
+
+// @ts-expect-error listener must be a function
+listen(state, 'no');
+
+// @ts-expect-error listener must be a function
+unlisten(state, 'no');
 
 const constant = new State({
 	id: 'theme',

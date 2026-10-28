@@ -60,5 +60,12 @@ export const toCamelCase: ToCamelCase;
 export const tryCall: (method: unknown, thisArg: object, args?: unknown[]) => void;
 export const requireId: (id: unknown) => string;
 export const ensureState: <T extends State>(state: T) => T;
-export const listen: (state: State, fn: (...args: unknown[]) => void) => void;
-export const unlisten: (state: State, fn: (...args: unknown[]) => void) => void;
+export type StateListener = (
+	this: State,
+	hook: StateHookName,
+	state: State,
+	...args: unknown[]
+) => void;
+
+export const listen: (state: State, fn: StateListener) => void;
+export const unlisten: (state: State, fn: StateListener) => void;

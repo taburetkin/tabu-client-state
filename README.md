@@ -143,7 +143,7 @@ Every public name, with signatures, is in the [reference](https://github.com/tab
 - Overrides are first-class. Pin in memory, or persist to `localStorage` / `sessionStorage`. Detect pauses while any layer is set.
 - Tests pin `vp.value = 'xs'` or `cs.values.vp = 'xs'` and get the `xs` rules. The stylesheet does not need a resize.
 - A state is a `State`. Presets are factories for the options it takes. Mutate what they return, or skip them.
-- `hooks` are optional slots. Plug in the bus you already have. The library does not import one.
+- `hooks` are optional slots. `listen` / `unlisten` add observers without replacing a slot. Plug in the bus you already have. The library does not import one.
 - ESM, adjacent `.d.ts`, zero runtime dependencies. Throttle and debounce are not in the package.
 
 ### Why this beats `@media`
@@ -199,7 +199,7 @@ import { State, StateManager, viewport } from 'tabu-client-state'
 
 TypeScript uses adjacent `.d.ts` files. There is no compile step.
 
-`State` is the unit. `StateManager` holds several and mirrors `set` / `setTarget` / overrides onto an id or a state. Named presets (`viewport`, `workspace`, `hover`, `colorScheme`, `orientation`) are optional factories for the same options object.
+`State` is the unit. `StateManager` holds several and mirrors `set` / `setTarget` / overrides onto an id or a state. `listen` / `unlisten` add observers without replacing a hook slot. Named presets (`viewport`, `workspace`, `hover`, `colorScheme`, `orientation`) are optional factories for the same options object.
 
 ### Where it runs
 
@@ -401,7 +401,7 @@ Unavailable storage is swallowed on probe. `destroy` / `remove` do **not** clear
 
 The package is not an event bus. `hooks` are optional slots. Skip them and CSS still works.
 
-Need only a value flip — `hooks.change`, or `hooks.all` and look at the name. Need `on` / `off` / `once` — put manager `all` on the bus you already have. The library does not import one.
+Need only a value flip — `hooks.change`, or `hooks.all` and look at the name. Need many observers without replacing that slot — `listen` / `unlisten`. Need `on` / `off` / `once` — put manager `all` or `listen` on the bus you already have. The library does not import one.
 
 ```js
 const cs = new StateManager({
@@ -420,7 +420,20 @@ const cs = new StateManager({
 })
 ```
 
-A named slot runs, then `all`, then the manager wire. Named state slots: `this` is the state, no `id` argument — `change(value)`, `start(value)`, the rest empty. State `all` and every manager slot: `(hook, state, ...args)`. Manager `this` is the manager. Manager names are prefixed: `state:change`, `before:state:start`.
+A named slot runs, then `all`, then `listen` observers, then the manager wire. Named state slots: `this` is the state, no `id` argument — `change(value)`, `start(value)`, the rest empty. State `all`, `listen`, and every manager slot: `(hook, state, ...args)`. Manager `this` is the manager. Manager names are prefixed: `state:change`, `before:state:start`.
+
+`listen` / `unlisten` are utilities, not methods on `State`. They do not replace `hooks`. The same function is stored once. A non-function is ignored.
+
+```js
+import { listen, unlisten } from 'tabu-client-state'
+
+function onStoreChange(hook) {
+	if (hook === 'change') rerender()
+}
+
+listen(cs.get('vp'), onStoreChange)
+unlisten(cs.get('vp'), onStoreChange)
+```
 
 `hooks` on `add` replaces the whole bag from `stateOptions`. Names are not merged. Put every slot you still want on that object. A ready `State` keeps the hooks it was built with.
 

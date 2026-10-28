@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { State } from '../State.js';
+import { State, listen, unlisten } from '../State.js';
 import { matchMediaState, workspace } from '../presets.js';
 import { FakeElement, failingStorage, fakeMedia, fakeTarget, installDom, stored, withStorages } from './helpers.js';
 
@@ -819,6 +819,50 @@ describe('State', () => {
 				console.error = prev;
 			}
 		});
+	});
+
+	it('listen sees hook, state, value; unlisten drops that fn', () => {
+		const el = new FakeElement();
+		const named = [];
+		const seen = [];
+		const state = liveState(el, {
+			hooks: {
+				change(value) { named.push(['change', value]); },
+			},
+		});
+		function onHook(hook, host, value) {
+			seen.push([hook, host === this, host === state, this.id, value]);
+		}
+		listen(state, onHook);
+		listen(state, onHook);
+		listen(state, 'no');
+		state.start();
+		state.set('held');
+		unlisten(state, onHook);
+		unlisten(state, onHook);
+		state.set('after');
+		assert.deepEqual(named, [
+			['change', 'live'],
+			['change', 'held'],
+			['change', 'after'],
+		]);
+		assert.deepEqual(seen, [
+			['before:start', true, true, 'data-x', undefined],
+			['change', true, true, 'data-x', 'live'],
+			['start', true, true, 'data-x', 'live'],
+			['change', true, true, 'data-x', 'held'],
+		]);
+	});
+
+	it('several listeners run; a throw in one stops the rest', () => {
+		const el = new FakeElement();
+		const seen = [];
+		const state = liveState(el);
+		listen(state, () => { seen.push('one'); });
+		listen(state, () => { throw new Error('listener'); });
+		listen(state, () => { seen.push('three'); });
+		assert.throws(() => state.start(), /listener/);
+		assert.deepEqual(seen, ['one']);
 	});
 
 	it('refuses to run after destroy', () => {

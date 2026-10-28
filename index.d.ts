@@ -1,9 +1,15 @@
+export { State } from './State.js';
 export {
 	StateManager,
 	type StateManagerOptions,
+	type AddOptions,
+	type RemoveOptions,
 } from './StateManager.js';
 export type {
 	StateOptions,
+	StateOverrides,
+	StateSetOptions,
+	StateSetWhere,
 } from './State.js';
 export type {
 	StateHookName,
@@ -11,7 +17,6 @@ export type {
 	StateHookHost,
 	StateHooks,
 	ManagerHooks,
-	StateProxyHooks,
 } from './hooks.js';
 export type {
 	SourceOptions,

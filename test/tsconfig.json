@@ -6,8 +6,9 @@
 		"moduleResolution": "node16",
 		"target": "ES2022",
 		"lib": ["ES2022", "DOM"],
-		"skipLibCheck": true,
+		"skipLibCheck": false,
+		"types": [],
 		"noUnusedLocals": false
 	},
-	"include": ["**/*.spec-d.ts"]
+	"include": ["**/*.spec-d.ts", "../*.d.ts"]
 }

@@ -1,44 +1,55 @@
-import { Storages } from './Storages.js';
-import { State, stateHookNames, toCamelCase, callHook } from './State.js';
+import { DEFAULT_STORAGE_KEY_PREFIX } from './Storages.js';
+import { State, stateHookNames, toCamelCase, ensureState, requireId, tryCall, listen, unlisten } from './State.js';
+
+
 
 export class StateManager {
 
 	#states;
-	#storages;
 	#attrTarget;
 	#stateOptions;
-	#started = false;
 	
-	#hooks;
+	#storageKeyPrefix;
 
+	#hooks;
+	#listen;
 	values;
 
-	get isStarted() { return this.#started; }
+	autoStartStates;
 
-	constructor({ states, storageKeyPrefix, attrTarget, stateOptions, hooks } = {}) {
-		storageKeyPrefix = storageKeyPrefix ?? 'tabu.clientstate.';
+	
+
+	constructor({ states, storageKeyPrefix, attrTarget, stateOptions, hooks, autoStartStates } = {}) {
+		
+		this.#storageKeyPrefix = storageKeyPrefix ?? DEFAULT_STORAGE_KEY_PREFIX;
 
 		this.#hooks = Object.assign({}, hooks);
-
+		this.autoStartStates = autoStartStates === true;
 		
 		this.#states = Object.create(null);
 		this.values = this.#createValues();
 
-
+		this.#listen = (hook, state, ...args) => {
+			const name = proxyHooks[hook];
+			const payload = [name, state, ...args];
+			tryCall(this.#hooks[hooksHash[name]], this, payload);
+			tryCall(this.#hooks.all, this, payload);
+			if (hook === 'destroy') {
+				unlisten(state, this.#listen);
+				delete this.#states[state.id];
+			}
+		};
 
 		this.#stateOptions = Object.assign({}, stateOptions);
 
-		this.#storages = new Storages(storageKeyPrefix);
 		this.#attrTarget = attrTarget ?? document.documentElement;
 		if (Array.isArray(states)) {
-			for (const stateOptions of states) {
-				this.add(stateOptions, true);
+			for (const item of states) {
+				this.add(addArg(item));
 			}
 		} else if (states) {
 			for (let id in states) {
-				let stateOptions = states[id];
-				stateOptions = Object.assign({ id }, stateOptions);
-				this.add(stateOptions, true);
+				this.add(addArg(states[id], id));
 			}
 		}
 	}
@@ -47,110 +58,137 @@ export class StateManager {
 		return this.#states[String(stateId)];
 	}
 
+	#state(arg) {
+		return asState(arg) ?? this.#get(arg);
+	}
+
+	#needState(arg) {
+		const state = this.#state(arg);
+		if (!state) throw new Error(`unknown state ${String(arg)}`);
+		return state;
+	}
+
 	#callHook(hook, ...args) {
-		const methodName = hooksHash[hook];
-		callHook(this, this.#hooks, undefined, methodName, hook, args);
+		const payload = [hook, ...args];
+		tryCall(this.#hooks[hooksHash[hook]], this, payload);
+		tryCall(this.#hooks.all, this, payload);
 	}
 
-	#proxyHooks(hook, ...args) {
-		const proxyHook = proxyHooks[hook];
-		const methodName = hooksHash[proxyHook];
-		callHook(this, this.#hooks, undefined, methodName, proxyHook, args);
-	}
 
-	add(stateOptions, dontStart) {
+	add(stateOptions, addOptions = {}) {
+		let { replace, detach, dontStart } = addOptions;
+
+		let stateId = requireId(stateOptions?.id);
+
+		let foreign = asState(stateOptions);
+		this.#callHook('before:add', stateOptions, addOptions);
 		
-		this.#callHook('before:add', stateOptions, dontStart);
+		let exist = this.#get(stateId);
+		if (exist) {
+			
+			if (exist === foreign) return exist;
+			
+			if (!replace) {
+				throw new Error(`state with id "${stateId}" already exists. use { replace: true, detach: true/false } option for auto removing/destroying`);
+			}
 
-		dontStart = getDontStart(dontStart, this.isStarted);
-		if (stateOptions.id === undefined || stateOptions.id === '') {
-			throw new Error('missing state id');
-		}
-		const stateId = stateOptions.id;
-		this.remove(stateId);
-
-		const state = this.#build(stateOptions);
-
+			this.#remove(exist, detach !== true);
+		} 
+		
+		let state = foreign ?? this.#build(stateOptions);
+		listen(state, this.#listen);
 		this.#states[state.id] = state;
 
-		this.#callHook('add', state.id);
+		this.#callHook('add', state);
 
-		if (!dontStart) state.start();
-	}
-
-	#build(stateOptions) {
-		const proxyHooks = (...args) => this.#proxyHooks(...args);
-		// inside state proxy hook called with state instance in this.
-		// arrow function here is for calling manager hooks exactly with manager this 
-		const state = new State({
-			proxyHooks,
-			...this.#stateOptions,
-			...stateOptions,
-			attrTarget: stateOptions.attrTarget ?? this.#attrTarget,
-			storages: this.#storages
-		});
+		if (this.autoStartStates && !dontStart) state.start();
 
 		return state;
 	}
 
-	storeValue(stateId, value, where) {
-		const state = this.#get(stateId);
-		if (!state) return false;
-		state.set(value, where);
-		return true;
+	
+	#build(stateOptions) {
+		return new State({
+			attrTarget: this.#attrTarget,
+			storageKeyPrefix: this.#storageKeyPrefix,
+			...this.#stateOptions,
+			...stateOptions,
+		});
 	}
 
-	setTarget(stateId, target, dontStart) {
-		dontStart = getDontStart(dontStart, this.isStarted);
-		let state = this.#get(stateId);
-		if (state) {
-			state.setTarget(target, dontStart);
-			return true;
-		}
-		return false;
+	get(id) {
+		return this.#get(id);
 	}
 
-	remove(arg) {
+	set(arg, value, setOptions) {
+		this.#needState(arg).set(value, setOptions);
+	}
+
+	setTarget(arg, target, dontStart) {
+		this.#needState(arg).setTarget(target, dontStart);
+	}
+
+	hasOverrides(arg) {
+		return this.#state(arg)?.hasOverrides() ?? false;
+	}
+
+	getOverrides(arg) {
+		return this.#state(arg)?.getOverrides();
+	}
+
+	remove(arg, options = {}) {
+
 		if (arguments.length === 0) {
 			this.#forEachStateKey(key => this.remove(key));
 			this.#states = Object.create(null);
 			return;
 		}
 
-		const state = this.#get(arg);
-		if (!state) return;
-		state.destroy();
-		delete this.#states[state.id];
-	}
-
-	// Any state start starts the manager. The manager may run with every state stopped.
-	// start() === start(true): manager + all states. start(false): manager only.
-	start(arg) {
-		const startAllCase = arguments.length === 0 || (typeof arg === 'boolean');
-		if (startAllCase) {
-			const startAllStates = arg !== false;
-			this.#started = true;
-			startAllStates && this.#forEachStateKey(key => this.start(key));
+		const foreign = asState(arg);
+		const state = this.#get(foreign?.id ?? arg);
+		if (foreign && foreign !== state) {
+			unlisten(foreign, this.#listen);
 			return;
 		}
 
-		if (!this.isStarted) this.#started = true;
-		const state = this.#get(arg);
+		this.#remove(state, options?.detach !== true);
+
+	}
+
+	#remove(state, destroy) {
+		if (!state) return;
+		if (destroy) {
+			state.destroy();
+			delete this.#states[state.id];
+			return;
+		}
+
+		this.#callHook('before:detach', state);
+		state.stop();
+			unlisten(state, this.#listen);
+		delete this.#states[state.id];
+		this.#callHook('detach', state);
+	}
+
+
+	start(arg) {
+		if (arguments.length === 0) {
+			this.#forEachStateKey(key => this.start(key));
+			return;
+		}
+
+		const state = this.#state(arg);
 		state && state.start();
 	}
 
-	// Stopping states does not stop the manager. The manager cannot stop while a state is running.
-	// stop() === stop(true): all states + manager. stop(false): all states, manager stays on.
+
 	stop(arg) {
-		const stopAllCase = arguments.length === 0 || (typeof arg === 'boolean');
-		if (stopAllCase) {
+		if (arguments.length === 0) {
 			this.#forEachStateKey(key => this.stop(key));
-			const shouldStopManager = arg !== false;
-			shouldStopManager && (this.#started = false);
 			return;
 		}
 
-		const state = this.#get(arg);
+		const state = this.#state(arg);
 		state && state.stop();
 	}
 
@@ -172,7 +210,7 @@ export class StateManager {
 				return mgr.#get(prop)?.value;
 			},
 			set(_target, prop, value) {
-				if (!mgr.storeValue(prop, value)) throw new Error(`unknown state ${String(prop)}`);
+				mgr.set(prop, value);
 				return true;
 			},
 			has(_target, prop) {
@@ -198,18 +236,20 @@ export class StateManager {
 
 }
 
-function getDontStart(dontStart, started) {
-	return dontStart || !started;
+function asState(arg) {
+	return arg instanceof State ? ensureState(arg) : undefined;
 }
 
-
-
+function addArg(item, id) {
+	return asState(item) ?? (id == null ? item : Object.assign({ id }, item));
+}
 
 const managerHookNames = [
 
 	'before:add',
 	'add',
-
+	'before:detach',
+	'detach',
 	...addStatePrefix(stateHookNames)
 
 ];

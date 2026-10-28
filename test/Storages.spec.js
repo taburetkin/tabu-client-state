@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { Storages } from '../Storages.js';
-import { stored, withStorages } from './helpers.js';
+import { Storages, getStoragesSingleton, DEFAULT_STORAGE_KEY_PREFIX } from '../Storages.js';
+import { failingStorage, stored, withStorages } from './helpers.js';
 
 describe('Storages', () => {
 	it('writes and reads with the prefix; missing key is undefined', () => {
@@ -58,7 +58,7 @@ describe('Storages', () => {
 		});
 	});
 
-	it('ignores a raw value that is not JSON and warns', () => {
+	it('returns a raw value that is not JSON and warns', () => {
 		withStorages((local) => {
 			const warnings = [];
 			const prev = console.warn;
@@ -66,8 +66,8 @@ describe('Storages', () => {
 			try {
 				const storages = new Storages('t.');
 				local.setItem('t.theme', 'dark');
-				assert.equal(storages.read('theme', false), undefined);
-				assert.deepEqual(warnings, ['parse failed trying to parse value dark']);
+				assert.equal(storages.read('theme', false), 'dark');
+				assert.deepEqual(warnings, ['read storage failed trying to parse value dark']);
 			} finally {
 				console.warn = prev;
 			}
@@ -77,49 +77,92 @@ describe('Storages', () => {
 	it('write undefined removes the key', () => {
 		withStorages((local) => {
 			let storages = new Storages('t.');
-			storages.write('theme', 'dark', false);
-			storages.write('theme', undefined, false);
+			assert.equal(storages.write('theme', 'dark', false), true);
+			assert.equal(storages.write('theme', undefined, false), undefined);
 			assert.equal(local.getItem('t.theme'), null);
 			assert.equal(storages.read('theme', false), undefined);
 		});
 	});
 
-	it('swallows missing storage', () => {
-		let prevLocal = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-		let prevSession = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
-		Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: undefined });
-		Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: undefined });
-		try {
-			let storages = new Storages('t.');
+	it('hasValue follows the stored key, including raw strings', () => {
+		withStorages((local) => {
+			const storages = new Storages('t.');
+			assert.equal(storages.hasValue('theme', false), false);
 			storages.write('theme', 'dark', false);
+			assert.equal(storages.hasValue('theme', false), true);
+			storages.write('theme', undefined, false);
+			assert.equal(storages.hasValue('theme', false), false);
+			local.setItem('t.theme', 'dark');
+			assert.equal(storages.hasValue('theme', false), true);
+			storages.write('hover', false, false);
+			assert.equal(storages.hasValue('hover', false), true);
+		});
+	});
+
+	it('swallows missing storage', () => {
+		withStorages(() => {
+			let storages = new Storages('t.');
+			assert.equal(storages.write('theme', 'dark', false), false);
 			assert.equal(storages.read('theme', false), undefined);
+			assert.equal(storages.hasValue('theme', false), false);
+		}, { local: undefined, session: undefined });
+	});
+
+	it('returns false and logs when setItem throws', () => {
+		const errors = [];
+		const prev = console.error;
+		console.error = error => errors.push(error);
+		try {
+			withStorages(() => {
+				const storages = new Storages('t.');
+				assert.equal(storages.write('theme', 'dark', false), false);
+				assert.equal(storages.read('theme', false), undefined);
+				assert.equal(errors.length, 1);
+			}, { local: failingStorage() });
 		} finally {
-			if (prevLocal) Object.defineProperty(globalThis, 'localStorage', prevLocal);
-			else delete globalThis.localStorage;
-			if (prevSession) Object.defineProperty(globalThis, 'sessionStorage', prevSession);
-			else delete globalThis.sessionStorage;
+			console.error = prev;
+		}
+	});
+
+	it('returns false and logs when the value cannot be stringified', () => {
+		const errors = [];
+		const prev = console.error;
+		console.error = error => errors.push(error);
+		try {
+			withStorages(() => {
+				const storages = new Storages('t.');
+				const cyclic = {};
+				cyclic.self = cyclic;
+				assert.equal(storages.write('theme', cyclic, false), false);
+				assert.equal(storages.read('theme', false), undefined);
+				assert.equal(errors.length, 1);
+			});
+		} finally {
+			console.error = prev;
 		}
 	});
 
 	it('swallows storage that throws on probe', () => {
-		let prevLocal = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-		let prevSession = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
-		let denied = {
+		const denied = {
 			setItem() { throw new Error('denied'); },
 			getItem() { return null; },
 			removeItem() {},
 		};
-		Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: denied });
-		Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: denied });
-		try {
+		withStorages(() => {
 			let storages = new Storages('t.');
-			storages.write('theme', 'dark', false);
+			assert.equal(storages.write('theme', 'dark', false), false);
 			assert.equal(storages.read('theme', false), undefined);
-		} finally {
-			if (prevLocal) Object.defineProperty(globalThis, 'localStorage', prevLocal);
-			else delete globalThis.localStorage;
-			if (prevSession) Object.defineProperty(globalThis, 'sessionStorage', prevSession);
-			else delete globalThis.sessionStorage;
-		}
+		}, { local: denied, session: denied });
+	});
+
+	it('reuses one instance per prefix', () => {
+		assert.equal(getStoragesSingleton('t.'), getStoragesSingleton('t.'));
+		assert.equal(getStoragesSingleton(), getStoragesSingleton(DEFAULT_STORAGE_KEY_PREFIX));
+		assert.notEqual(getStoragesSingleton('t.'), getStoragesSingleton('u.'));
+		withStorages((local) => {
+			const storages = getStoragesSingleton('t.');
+			storages.write('theme', 'dark', false);
+			assert.equal(local.getItem('t.theme'), stored('dark'));
+		});
 	});
 });

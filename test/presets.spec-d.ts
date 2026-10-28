@@ -37,7 +37,7 @@ const _customVp: StateOptions = viewport({
 	attrName: 'vp',
 	sizes: [['xs', 768], ['xl', 1600]],
 });
-const _customWs: StateOptions = workspace({
+const _customWs: StateOptions<Element> = workspace({
 	id: 'pane',
 	sizes: [['xs', 300], ['xl', 900]],
 	target: {} as Element,
@@ -63,7 +63,7 @@ void _customWs;
 const _timer: SourceOptions = timer({ delay: 25 });
 const _event: SourceOptions = event({ event: 'click' });
 const _resize: SourceOptions = resizeElement({ limit: fn => fn });
-const _media: SourceOptions = mediaQuery({ query: '(hover: hover)' });
+const _media: SourceOptions<MediaQueryList | undefined> = mediaQuery({ query: '(hover: hover)' });
 void _timer;
 void _event;
 void _resize;

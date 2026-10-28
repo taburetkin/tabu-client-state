@@ -1,3 +1,4 @@
+export { State } from './State.js';
 export { StateManager } from './StateManager.js';
 export {
 	viewport,

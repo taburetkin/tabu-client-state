@@ -1,17 +1,17 @@
-export type SourceCtx = {
-	target?: unknown;
+// T is what source.target resolves to, inferred on add(). Without it, target stays unknown.
+export type SourceCtx<T = unknown> = {
 	callback: () => void;
 	[key: string]: unknown;
+} & (unknown extends T ? { target?: unknown } : { target: T });
+
+type SourceListeners<T> = {
+	bind: (ctx: SourceCtx<T>) => void;
+	unbind: (ctx: SourceCtx<T>) => void;
 };
 
-type SourceListeners = {
-	bind: (ctx: SourceCtx) => void;
-	unbind: (ctx: SourceCtx) => void;
-};
-
-export type SourceOptions = {
-	target?: unknown | (() => unknown);
-} & (SourceListeners | {
+export type SourceOptions<T = unknown> = {
+	target?: T | (() => T);
+} & (SourceListeners<T> | {
 	bind?: undefined;
 	unbind?: undefined;
 });
@@ -23,9 +23,11 @@ export type Source = {
 	stop(): void;
 };
 
-export function normalizeSource(source?: SourceOptions | (() => SourceOptions)): SourceOptions;
-export function createSource(
-	source: SourceOptions,
-	value: ((ctx: SourceCtx) => unknown) | string | boolean | number | undefined,
+export function normalizeSource<T = unknown>(
+	source?: SourceOptions<T> | (() => SourceOptions<T>),
+): SourceOptions<T>;
+export function createSource<T = unknown>(
+	source: SourceOptions<T>,
+	value: ((ctx: SourceCtx<T>) => unknown) | string | boolean | number | undefined,
 	update: (value: unknown) => void,
 ): Source;

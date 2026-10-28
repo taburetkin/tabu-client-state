@@ -1,5 +1,6 @@
 import * as pkg from '../index.js';
 import {
+	State,
 	StateManager,
 	viewport,
 	workspace,
@@ -7,18 +8,23 @@ import {
 	colorScheme,
 	orientation,
 	type StateOptions,
+	type StateOverrides,
+	type StateSetOptions,
+	type StateSetWhere,
 	type StateManagerOptions,
 	type StateHooks,
 	type ManagerHooks,
 	type StateHookName,
 	type ManagerHookName,
-	type StateProxyHooks,
+	type AddOptions,
 } from '../index.js';
 
 void new StateManager({
 	states: [viewport(), workspace(), hover(), colorScheme(), orientation()],
 });
 
+void State;
+void pkg.State;
 void pkg.StateManager;
 void pkg.viewport;
 void pkg.workspace;
@@ -27,13 +33,20 @@ void pkg.colorScheme;
 void pkg.orientation;
 
 const _config: StateOptions = viewport();
+const _where: StateSetWhere = { memory: true, session: true };
+const _layers: StateSetOptions = { local: true };
+const _flags: StateOverrides = { memory: true, session: false, local: false };
+void _where;
+void _layers;
+void _flags;
 const _hooks: StateHooks = { change() {} };
 const _mgrHooks: ManagerHooks = { stateChange() {} };
-const _proxy: StateProxyHooks = false;
-void _proxy;
+const _addOpts: AddOptions = { replace: true, dontStart: true };
+void _addOpts;
 const _hookName: StateHookName = 'before:start';
 const _mgrHookName: ManagerHookName = 'before:state:start';
 const _opts: StateManagerOptions = {
+	autoStartStates: true,
 	states: [_config],
 	attrTarget: document.body,
 	hooks: _mgrHooks,
@@ -43,8 +56,6 @@ void _opts;
 void _hookName;
 void _mgrHookName;
 
-// @ts-expect-error State is not a package export
-pkg.State;
 // @ts-expect-error StateId is not a package export
 pkg.StateId;
 // @ts-expect-error StateInput is not a package export
@@ -72,6 +83,12 @@ pkg.VIEWPORT_SIZES;
 pkg.WORKSPACE_SIZES;
 // @ts-expect-error widthState is not exported
 pkg.widthState;
+// @ts-expect-error DEFAULT_STORAGE_KEY_PREFIX is not a package export
+pkg.DEFAULT_STORAGE_KEY_PREFIX;
+// @ts-expect-error getStoragesSingleton is not a package export
+pkg.getStoragesSingleton;
+// @ts-expect-error captureStorages is not a package export
+pkg.captureStorages;
 // @ts-expect-error Storages is not a package export
 pkg.Storages;
 // @ts-expect-error matchMediaState is not a package export
@@ -88,3 +105,11 @@ pkg.onChange;
 pkg.tokenByThresholds;
 // @ts-expect-error mediaQueriesFromSizes is not a package export
 pkg.mediaQueriesFromSizes;
+// @ts-expect-error listen is not a package export
+pkg.listen;
+// @ts-expect-error unlisten is not a package export
+pkg.unlisten;
+// @ts-expect-error ensureState is not a package export
+pkg.ensureState;
+// @ts-expect-error requireId is not a package export
+pkg.requireId;

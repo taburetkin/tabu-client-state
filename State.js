@@ -1,4 +1,9 @@
 import { createSource, normalizeSource } from './source.js';
+import { getStoragesSingleton } from './Storages.js';
+
+const emptyObject = {};
+const emptySet = new Set();
+const listeners = new WeakMap();
 
 export class State {
 
@@ -9,7 +14,6 @@ export class State {
 
 	#source;
 	#storages;
-	#locked = false;
 	#updateForSource;
 
 	#sourceOptions;
@@ -18,18 +22,17 @@ export class State {
 	
 	
 	#value;
+	#memoryOverride;
 
 	#hooks;
-	#proxyHooks;
-	
 
-	constructor({ id, attrName, attrTarget, source, value, attrValue, storages, hooks, proxyHooks } = {}) {
-		this.id = String(id);
+	constructor({ id, attrName, attrTarget, source, value, attrValue, hooks, storageKeyPrefix } = {}) {
+		this.id = requireId(id);
 		this.attrName = attrName ?? this.id;
-		this.attrTarget = attrTarget;
-		this.attrOriginValue = attrTarget.getAttribute(this.attrName);
+		this.attrTarget = attrTarget ?? document.documentElement;
+		this.attrOriginValue = this.attrTarget.getAttribute(this.attrName);
 
-		this.#storages = storages;
+		this.#storages = getStoragesSingleton(storageKeyPrefix);
 
 
 		this.#sourceOptions = normalizeSource(source);
@@ -39,12 +42,11 @@ export class State {
 			this.#attrValue = attrValue;
 
 		this.#updateForSource = newValue => {
-			if (this.#locked) return;
+			if (this.hasOverrides()) return;
 			this.#setValue(newValue);
 		};
 
 		this.#hooks = Object.assign({}, hooks);
-		this.#proxyHooks = proxyHooks;
 
 		this.#initSource();
 
@@ -58,7 +60,6 @@ export class State {
 	set value(newValue) {
 		this.set(newValue)
 	}
-
 
 	setTarget(target, dontStart) {
 		this.#ensureAlive();
@@ -76,21 +77,32 @@ export class State {
 		
 	}
 
+	hasOverrides() {
+		return this.getOverrides() != null;
+	}
 
-	set(value, storageIdentifier) {
+	getOverrides() {
+		const memory = this.#memoryOverride !== undefined;
+		const session = this.#storages.hasValue(this.id, true);
+		const local = this.#storages.hasValue(this.id, false);
+		if (memory || session || local) {
+			return { memory, session, local };
+		}
+	}
+
+	set(value, setOptions) {
 		this.#ensureAlive();
+		setOptions = normalizeSetOptions(setOptions);
 
-		const shouldClear = value === undefined;
-		this.#locked = !shouldClear;
-		this.#tryOverride(value, storageIdentifier);
+		const overrided = this.#setOverride(value, setOptions);
 
-		if (shouldClear) {
+		if (overrided === undefined) {
 			this.isStarted && this.#source.start();
 			this.#sync();
 		}
 		else {
 			this.#source.stop();
-			this.#setValue(value);
+			this.#setValue(overrided);
 		}
 	}
 
@@ -100,26 +112,43 @@ export class State {
 		this.#setTargetAttribute(this.#toAttr(this.value));
 
 		if (this.isStarted && changed) 
-			this.#callHook('change', this.id, this.value);
+			this.#callHook('change', this.value);
 
 	}
 
 	#callHook(hook, ...args) {
-		const methodName = hooksHash[hook];
-		callHook(this, this.#hooks, this.#proxyHooks, methodName, hook, args);
+		const hooks = this.#hooks ?? emptyObject;
+		tryCall(hooks[hooksHash[hook]], this, args);
+
+		const payload = [hook, this, ...args];
+		tryCall(hooks.all, this, payload);
+		for (const fn of listeners.get(this) ?? emptySet) fn.apply(this, payload);
 	}
 
-	#tryOverride(value, storageIdentifier) {
-		if (value === undefined) {
-			this.#storages.write(this.id, value, true);
-			this.#storages.write(this.id, value, false);
-			return;
+	#setOverride(value, options) {
+		let removing = value === undefined;
+		let { memory, session, local } = options;
+		let sessionFail, localFail;
+		let both = !!session && !!local;
+
+		memory && (this.#memoryOverride = value);
+		session && (sessionFail = this.#storages.write(this.id, value, true) === false);
+		local && (localFail = this.#storages.write(this.id, value, false) === false);
+
+		const fallbackToMemory = !removing && (
+			(both && sessionFail && localFail) 
+			|| (!both && (sessionFail || localFail))
+		);
+
+		
+		if (fallbackToMemory) {
+			this.#memoryOverride = value;
 		}
-		if (storageIdentifier == null) return;
-		this.#storages.write(this.id, value, storageIdentifier);
+		return this.#getOverride();
 	}
 
 	#getOverride() {
+		if (this.#memoryOverride !== undefined) return this.#memoryOverride;
 		let value = this.#storages.read(this.id, true);
 		if (value !== undefined) return value;
 		return this.#storages.read(this.id, false);
@@ -139,17 +168,14 @@ export class State {
 		this.#ensureAlive();
 		if (this.isStarted) return;
 		
-		this.#callHook('before:start', this.id);
+		this.#callHook('before:start');
 
-		let overrided = this.#locked ? this.#value : this.#getOverride();
-		let hasOverrided = overrided !== undefined;
-		let shouldLock = hasOverrided && !this.#locked;
-		if (shouldLock) this.#locked = true;
+		let overrided = this.#getOverride();
 
 		this.#source.start();
 		this.isStarted = true;
 
-		if (this.#locked) {
+		if (overrided !== undefined) {
 			this.#source.stop();
 			this.#setValue(overrided);
 		}
@@ -157,36 +183,59 @@ export class State {
 			this.#sync();
 		}
 
-		this.#callHook('start', this.id, this.value);
+		this.#callHook('start', this.value);
 	}
 
 	stop() {
 		if (!this.isStarted) return;
-		this.#callHook('before:stop', this.id);
+		this.#callHook('before:stop');
 		this.#source.stop();
 		this.isStarted = false;
-		this.#callHook('stop', this.id);
+		this.#callHook('stop');
 
 	}
 
 	destroy() {
 		if (this.isDestroyed) return;
-		this.#callHook('before:destroy', this.id);
+		this.#callHook('before:destroy');
 
 		this.stop();
 		this.#setTargetAttribute(this.attrOriginValue);
 		this.isDestroyed = true;
 
-		this.#callHook('destroy', this.id);
+		this.#callHook('destroy');
 
 	}
 
 	#ensureAlive() {
-		if (this.isDestroyed === true) {
-			throw new Error(`state ${this.id} destroyed and can not be used`);
-		}
+		ensureState(this);
 	}
 }
+
+
+
+function normalizeSetOptions(options) {
+	if (options == null) {
+		return { memory: true }
+	}
+
+	if (typeof options === 'object') {
+		let { memory, session, local } = options;
+		if (memory || session || local) return options;
+		return { memory: true };
+	}
+
+	const stringId = String(options);
+	switch(stringId){
+		case 'true':
+		case 'session':
+			return { session: true };
+		default:
+			return { local: true };
+	}
+
+}
+
 
 
 function setAttr(el, name, value) {
@@ -225,13 +274,35 @@ export function toCamelCase(str) {
     .join('');
 }
 
-export function tryCall(method, _this, ...args) {
+export function tryCall(method, _this, args) {
 	if (typeof method !== 'function') return;
 	method.apply(_this, args);
 }
 
-export function callHook(instance, hooks, proxy, methodName, hook, args) {
-	tryCall(hooks[methodName], instance, ...args);
-	tryCall(hooks.all, instance, hook, ...args);
-	tryCall(proxy, instance, hook, ...args);
+export function requireId(id) {
+	if (id == null || String(id) === '') {
+		throw new Error('missing state id');
+	}
+	return String(id);
+}
+
+export function ensureState(state) {
+	if (state.isDestroyed === true) {
+		throw new Error(`state ${state.id} destroyed and can not be used`);
+	}
+	return state;
+}
+
+export function listen(state, fn) {
+	if (typeof fn !== 'function') return;
+	let set = listeners.get(state);
+	if (!set) {
+		set = new Set();
+		listeners.set(state, set);
+	}
+	set.add(fn);
+}
+
+export function unlisten(state, fn) {
+	listeners.get(state)?.delete(fn);
 }

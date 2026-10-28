@@ -17,8 +17,7 @@ import {
 } from '../presets.js';
 import { createSource } from '../source.js';
 import { State } from '../State.js';
-import { Storages } from '../Storages.js';
-import { FakeElement, fakeMedia, fakeTarget, installDom, withFakeTimers } from './helpers.js';
+import { FakeElement, FakeResizeObserver, fakeMedia, fakeTarget, installDom, withFakeTimers } from './helpers.js';
 
 function queryMatchesWidth(query, width) {
 	if (query === 'all') return true;
@@ -297,9 +296,9 @@ describe('viewport', () => {
 		const state = new State({
 			...viewport(),
 			attrTarget: new FakeElement(),
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			hooks: {
-				change(_id, value) { seen.push(value); },
+				change(value) { seen.push(value); },
 			},
 		});
 		state.start();
@@ -472,4 +471,221 @@ describe('event, mediaQuery, resizeWindow, resizeElement, timer', () => {
 			assert.deepEqual(seen, ['tick']);
 		});
 	});
+});
+
+function presetState(preset, extra = {}) {
+	return new State({
+		...preset,
+		attrTarget: extra.attrTarget ?? new FakeElement(),
+		storageKeyPrefix: 't.',
+		...extra,
+	});
+}
+
+function installWidthMedia(getWidth) {
+	const lists = new Map();
+	window.matchMedia = query => {
+		let mql = lists.get(query);
+		if (!mql) {
+			mql = fakeTarget({ media: query });
+			Object.defineProperty(mql, 'matches', {
+				configurable: true,
+				get() { return queryMatchesWidth(query, getWidth()); },
+			});
+			lists.set(query, mql);
+		}
+		return mql;
+	};
+	return {
+		lists,
+		fire() {
+			for (const mql of lists.values()) {
+				for (const fn of mql.listenersFor('change')) fn();
+			}
+		},
+		liveListeners() {
+			let n = 0;
+			for (const mql of lists.values()) n += mql.listenerCount();
+			return n;
+		},
+	};
+}
+
+function assertUnsubscribed(target) {
+	assert.equal(target.listenerCount(), 0);
+	assert.deepEqual(target.removed, target.added);
+}
+
+describe('preset detect and leaks', () => {
+	let dom;
+
+	before(() => {
+		dom = installDom();
+	});
+
+	after(() => {
+		dom.restore();
+	});
+
+	it('viewport publishes tokens on media change and unsubscribes the same handlers', async () => {
+		let width = 1000;
+		const media = installWidthMedia(() => width);
+		const preset = viewport();
+		const state = presetState(preset);
+		state.start();
+		assert.equal(state.value, 'md');
+		assert.equal(state.attrTarget.getAttribute('data-vp'), 'md');
+		assert.equal(media.liveListeners(), 4);
+
+		width = 1500;
+		media.fire();
+		await new Promise(resolve => queueMicrotask(resolve));
+		assert.equal(state.value, 'xl');
+		assert.equal(state.attrTarget.getAttribute('data-vp'), 'xl');
+
+		width = 200;
+		media.fire();
+		await new Promise(resolve => queueMicrotask(resolve));
+		assert.equal(state.value, 'xs');
+		assert.equal(state.attrTarget.getAttribute('data-vp'), 'xs');
+
+		const bound = [...media.lists.values()].filter(mql => mql.added.length);
+		assert.equal(bound.length, 4);
+		const handlers = bound.map(mql => mql.added[0][1]);
+		assert.equal(new Set(handlers).size, 1);
+
+		state.stop();
+		assert.equal(media.liveListeners(), 0);
+		for (const mql of bound) assertUnsubscribed(mql);
+	});
+
+	it('viewport pin pauses detect; unpin restores it without leaking', async () => {
+		let width = 1000;
+		const media = installWidthMedia(() => width);
+		const state = presetState(viewport());
+		state.start();
+		for (let i = 0; i < 3; i++) {
+			state.set('xs');
+			assert.equal(media.liveListeners(), 0);
+			state.set(undefined);
+			assert.equal(media.liveListeners(), 4);
+		}
+		width = 1500;
+		media.fire();
+		await new Promise(resolve => queueMicrotask(resolve));
+		assert.equal(state.value, 'xl');
+		state.stop();
+		assert.equal(media.liveListeners(), 0);
+	});
+
+	it('workspace publishes tokens on resize and disconnects the observer', () => {
+		FakeResizeObserver.reset();
+		const node = { clientWidth: 200 };
+		const state = presetState(workspace({ target: node }));
+		state.start();
+		assert.equal(state.value, 'xs');
+		assert.equal(state.attrTarget.getAttribute('data-ws'), 'xs');
+		assert.equal(FakeResizeObserver.live().length, 1);
+		assert.equal(FakeResizeObserver.live()[0].target, node);
+
+		node.clientWidth = 500;
+		FakeResizeObserver.live()[0].resize();
+		assert.equal(state.value, 'md');
+		assert.equal(state.attrTarget.getAttribute('data-ws'), 'md');
+
+		node.clientWidth = 900;
+		FakeResizeObserver.live()[0].resize();
+		assert.equal(state.value, 'xl');
+
+		const observer = FakeResizeObserver.live()[0];
+		state.stop();
+		assert.equal(observer.disconnected, true);
+		assert.equal(FakeResizeObserver.live().length, 0);
+		observer.resize();
+		assert.equal(state.value, 'xl');
+	});
+
+	it('workspace pin pauses the observer; unpin restores it without leaking', () => {
+		FakeResizeObserver.reset();
+		const node = { clientWidth: 200 };
+		const state = presetState(workspace({ target: node }));
+		state.start();
+		for (let i = 0; i < 3; i++) {
+			state.set('xl');
+			assert.equal(FakeResizeObserver.live().length, 0);
+			state.set(undefined);
+			assert.equal(FakeResizeObserver.live().length, 1);
+		}
+		node.clientWidth = 500;
+		FakeResizeObserver.live()[0].resize();
+		assert.equal(state.value, 'md');
+		state.stop();
+		assert.equal(FakeResizeObserver.live().length, 0);
+	});
+
+	it('workspace without a target does not create an observer', () => {
+		FakeResizeObserver.reset();
+		const state = presetState(workspace());
+		state.start();
+		assert.equal(state.value, undefined);
+		assert.equal(FakeResizeObserver.instances.length, 0);
+		state.stop();
+		assert.equal(FakeResizeObserver.live().length, 0);
+	});
+
+	for (const spec of [
+		{
+			name: 'hover',
+			factory: hover,
+			query: '(hover: hover)',
+			off: 'no',
+			on: 'yes',
+		},
+		{
+			name: 'colorScheme',
+			factory: colorScheme,
+			query: '(prefers-color-scheme: dark)',
+			off: 'light',
+			on: 'dark',
+		},
+		{
+			name: 'orientation',
+			factory: orientation,
+			query: '(orientation: portrait)',
+			off: 'landscape',
+			on: 'portrait',
+		},
+	]) {
+		it(`${spec.name} follows matchMedia, writes the attribute, and unsubscribes the same handler`, () => {
+			const mql = fakeTarget({ media: spec.query, matches: false });
+			window.matchMedia = query => query === spec.query ? mql : fakeTarget({ media: query, matches: false });
+			const preset = spec.factory();
+			const state = presetState(preset);
+			state.start();
+			assert.equal(state.value, false);
+			assert.equal(state.attrTarget.getAttribute(preset.attrName), spec.off);
+			assert.equal(mql.listenerCount('change'), 1);
+
+			mql.matches = true;
+			for (const fn of mql.listenersFor('change')) fn();
+			assert.equal(state.value, true);
+			assert.equal(state.attrTarget.getAttribute(preset.attrName), spec.on);
+
+			mql.matches = false;
+			for (const fn of mql.listenersFor('change')) fn();
+			assert.equal(state.value, false);
+			assert.equal(state.attrTarget.getAttribute(preset.attrName), spec.off);
+
+			state.set(true);
+			assert.equal(mql.listenerCount(), 0);
+			state.set(undefined);
+			assert.equal(state.value, false);
+			assert.equal(mql.listenerCount('change'), 1);
+
+			state.stop();
+			assertUnsubscribed(mql);
+			assert.equal(mql.added[0][0], 'change');
+			assert.equal(mql.removed[0][1], mql.added[0][1]);
+		});
+	}
 });

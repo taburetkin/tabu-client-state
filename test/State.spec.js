@@ -1,15 +1,14 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { State } from '../State.js';
-import { Storages } from '../Storages.js';
-import { matchMediaState } from '../presets.js';
-import { FakeElement, fakeMedia, fakeTarget, installDom, stored, withStorages } from './helpers.js';
+import { matchMediaState, workspace } from '../presets.js';
+import { FakeElement, failingStorage, fakeMedia, fakeTarget, installDom, stored, withStorages } from './helpers.js';
 
 function liveState(el, overrides = {}) {
 	return new State({
 		id: 'data-x',
 		attrTarget: el,
-		storages: new Storages('t.'),
+		storageKeyPrefix: 't.',
 		value: ({ target } = {}) => target?.token ?? 'live',
 		source: {
 			target: overrides.target ?? fakeTarget({ token: 'live' }),
@@ -32,6 +31,39 @@ describe('State', () => {
 		dom.restore();
 	});
 
+	it('starts without a manager, defaulting attrTarget and storages', () => {
+		const state = new State({ id: 'solo', value: 'light' });
+		assert.equal(state.attrTarget, document.documentElement);
+		assert.equal(state.value, undefined);
+		state.start();
+		assert.equal(state.isStarted, true);
+		assert.equal(state.value, 'light');
+		assert.equal(dom.documentElement.getAttribute('solo'), 'light');
+		state.destroy();
+		assert.equal(dom.documentElement.getAttribute('solo'), null);
+	});
+
+	it('starts a preset without a manager', () => {
+		const state = new State(workspace());
+		state.start();
+		assert.equal(state.isStarted, true);
+		assert.equal(state.id, 'ws');
+		assert.equal(state.attrName, 'data-ws');
+		assert.equal(state.attrTarget, document.documentElement);
+		state.destroy();
+	});
+
+	it('pins under the default prefix when storages is omitted', () => {
+		withStorages((local) => {
+			const el = new FakeElement();
+			const state = new State({ id: 'solo', attrTarget: el, value: 'light' });
+			state.start();
+			state.set('dark', false);
+			assert.equal(local.getItem('tabu.clientstate.solo'), stored('dark'));
+			state.destroy();
+		});
+	});
+
 	it('defaults attrName to id and does not publish until start', () => {
 		const el = new FakeElement();
 		const state = liveState(el);
@@ -44,12 +76,18 @@ describe('State', () => {
 		assert.equal(el.getAttribute('data-x'), 'live');
 	});
 
+	it('rejects a missing or empty id', () => {
+		assert.throws(() => new State({}), /missing state id/);
+		assert.throws(() => new State({ id: '' }), /missing state id/);
+		assert.throws(() => new State({ id: null }), /missing state id/);
+	});
+
 	it('stringifies id and uses it as attrName when omitted', () => {
 		const el = new FakeElement();
 		const state = new State({
 			id: 1,
 			attrTarget: el,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'n',
 			source: { bind() {}, unbind() {} },
 		});
@@ -63,7 +101,7 @@ describe('State', () => {
 			id: 'theme',
 			attrName: 'data-theme',
 			attrTarget: el,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'light',
 			source: { bind() {}, unbind() {} },
 		});
@@ -102,7 +140,7 @@ describe('State', () => {
 		const state = new State({
 			id: 'data-ws',
 			attrTarget: el,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'xs',
 			source: { bind() { return false; }, unbind() {} },
 		});
@@ -112,21 +150,24 @@ describe('State', () => {
 		assert.equal(el.getAttribute('data-ws'), 'xs');
 	});
 
-	it('locks an override, persists it, and clears both storages on undefined', () => {
+	it('writes memory by default; undefined clears only that layer', () => {
 		withStorages((local, session) => {
 			const el = new FakeElement();
 			const state = liveState(el);
 			state.start();
-			state.set('locked');
-			assert.equal(el.getAttribute('data-x'), 'locked');
+			state.set('memory');
+			assert.equal(el.getAttribute('data-x'), 'memory');
+			assert.equal(local.getItem('t.data-x'), null);
+			assert.equal(session.getItem('t.data-x'), null);
 			state.set('session', true);
 			assert.equal(session.getItem('t.data-x'), stored('session'));
 			state.set('local', false);
 			assert.equal(local.getItem('t.data-x'), stored('local'));
 			state.set(undefined);
-			assert.equal(session.getItem('t.data-x'), null);
-			assert.equal(local.getItem('t.data-x'), null);
-			assert.equal(el.getAttribute('data-x'), 'live');
+			assert.equal(session.getItem('t.data-x'), stored('session'));
+			assert.equal(local.getItem('t.data-x'), stored('local'));
+			assert.equal(state.value, 'session');
+			assert.equal(el.getAttribute('data-x'), 'session');
 		});
 	});
 
@@ -145,7 +186,7 @@ describe('State', () => {
 			const localOnly = new State({
 				id: 'data-y',
 				attrTarget: el2,
-				storages: new Storages('t.'),
+				storageKeyPrefix: 't.',
 				value: () => 'live',
 				source: { bind() {}, unbind() {} },
 			});
@@ -173,7 +214,7 @@ describe('State', () => {
 		const state = new State({
 			id: 'data-x',
 			attrTarget: el,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'live',
 			source: {
 				bind(ctx) { fire = ctx.callback; },
@@ -196,7 +237,7 @@ describe('State', () => {
 		const state = new State({
 			id: 'data-x',
 			attrTarget: el,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'live',
 			source: {
 				bind(ctx) { fire = ctx.callback; },
@@ -233,7 +274,7 @@ describe('State', () => {
 				...media,
 				attrName: 'data-hover',
 				attrTarget: el,
-				storages: new Storages('t.'),
+				storageKeyPrefix: 't.',
 				source: {
 					target: fakeMedia(true),
 					bind() {},
@@ -253,7 +294,7 @@ describe('State', () => {
 				...media,
 				attrName: 'data-hover',
 				attrTarget: new FakeElement(),
-				storages: new Storages('t.'),
+				storageKeyPrefix: 't.',
 				value: () => true,
 				source: { bind() {}, unbind() {} },
 			});
@@ -268,7 +309,7 @@ describe('State', () => {
 		const state = new State({
 			id: 'on',
 			attrTarget: el,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => false,
 			source: { bind() {}, unbind() {} },
 		});
@@ -287,7 +328,7 @@ describe('State', () => {
 		const mapped = new State({
 			id: 'data-m',
 			attrTarget: new FakeElement(),
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'on',
 			attrValue: (v) => v === 'on' ? v : undefined,
 			source: { bind() {}, unbind() {} },
@@ -301,7 +342,7 @@ describe('State', () => {
 		const other = new State({
 			id: 'data-z',
 			attrTarget: silent,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'v',
 			source: { bind() {}, unbind() {} },
 		});
@@ -321,24 +362,24 @@ describe('State', () => {
 		const state = liveState(el, {
 			target,
 			hooks: {
-				change(id, value) { seen.push([id, value, state.isStarted, el.getAttribute('data-x')]); },
+				change(value) { seen.push([value, state.isStarted, el.getAttribute('data-x')]); },
 			},
 		});
 		assert.deepEqual(seen, []);
 
 		state.start();
-		assert.deepEqual(seen, [['data-x', 'live', true, 'live']]);
+		assert.deepEqual(seen, [['live', true, 'live']]);
 		state.start();
-		assert.deepEqual(seen, [['data-x', 'live', true, 'live']]);
+		assert.deepEqual(seen, [['live', true, 'live']]);
 
 		state.stop();
 		state.start();
-		assert.deepEqual(seen, [['data-x', 'live', true, 'live']]);
+		assert.deepEqual(seen, [['live', true, 'live']]);
 
 		state.set('held');
 		assert.deepEqual(seen, [
-			['data-x', 'live', true, 'live'],
-			['data-x', 'held', true, 'held'],
+			['live', true, 'live'],
+			['held', true, 'held'],
 		]);
 
 		state.stop();
@@ -359,7 +400,7 @@ describe('State', () => {
 		const state = new State({
 			id: 'data-x',
 			attrTarget: el,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => undefined,
 			source: { bind() {}, unbind() {} },
 			hooks: {
@@ -397,7 +438,7 @@ describe('State', () => {
 		const pin = new State({
 			id: 'pin',
 			attrTarget: pinEl,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 		});
 		pin.start();
 		assert.equal(pin.value, undefined);
@@ -410,7 +451,7 @@ describe('State', () => {
 		const def = new State({
 			id: 'def',
 			attrTarget: defEl,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'default',
 		});
 		def.start();
@@ -421,7 +462,7 @@ describe('State', () => {
 		const live = new State({
 			id: 'live',
 			attrTarget: liveEl,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'auto',
 			source: { bind() {}, unbind() {} },
 		});
@@ -436,9 +477,9 @@ describe('State', () => {
 		const pin = new State({
 			id: 'pin',
 			attrTarget: pinEl,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			hooks: {
-				change(_id, value) { pinSeen.push(value); },
+				change(value) { pinSeen.push(value); },
 			},
 		});
 		pin.start();
@@ -454,10 +495,10 @@ describe('State', () => {
 		const theme = new State({
 			id: 'theme',
 			attrTarget: themeEl,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: 'light',
 			hooks: {
-				change(_id, value) { themeSeen.push(value); },
+				change(value) { themeSeen.push(value); },
 			},
 		});
 		theme.start();
@@ -474,7 +515,7 @@ describe('State', () => {
 		const el = new FakeElement();
 		const state = liveState(el, {
 			hooks: {
-				change(_id, value) { seen.push(value); },
+				change(value) { seen.push(value); },
 			},
 		});
 		state.start();
@@ -495,7 +536,7 @@ describe('State', () => {
 		const locked = new State({
 			id: 'data-x',
 			attrTarget: new FakeElement(),
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'live',
 			source,
 		});
@@ -509,7 +550,7 @@ describe('State', () => {
 		const live = new State({
 			id: 'data-y',
 			attrTarget: new FakeElement(),
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'live',
 			source: {
 				bind() { bound += 1; },
@@ -529,7 +570,7 @@ describe('State', () => {
 			const state = new State({
 				id: 'data-x',
 				attrTarget: el,
-				storages: new Storages('t.'),
+				storageKeyPrefix: 't.',
 				value: () => 'live',
 				source: {
 					bind() { return false; },
@@ -548,7 +589,7 @@ describe('State', () => {
 		const state = new State({
 			id: 'data-x',
 			attrTarget: el,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'live',
 			source: {
 				bind() { return false; },
@@ -569,11 +610,11 @@ describe('State', () => {
 			const el = new FakeElement();
 			const state = liveState(el, {
 				hooks: {
-					change(id, value) { seen.push([id, value]); },
+					change(value) { seen.push(value); },
 				},
 			});
 			state.start();
-			assert.deepEqual(seen, [['data-x', 'from-session']]);
+			assert.deepEqual(seen, ['from-session']);
 			assert.equal(el.getAttribute('data-x'), 'from-session');
 		});
 
@@ -584,7 +625,7 @@ describe('State', () => {
 		const state = liveState(el, {
 			target: first,
 			hooks: {
-				change(_id, value) { seen.push(value); },
+				change(value) { seen.push(value); },
 			},
 		});
 		state.start();
@@ -599,7 +640,7 @@ describe('State', () => {
 		const state = new State({
 			id: 'data-ws',
 			attrTarget: el,
-			storages: new Storages('t.'),
+			storageKeyPrefix: 't.',
 			value: () => 'xs',
 			hooks: {
 				change() { seen.push('change'); },
@@ -609,6 +650,175 @@ describe('State', () => {
 		state.start();
 		assert.deepEqual(seen, ['change']);
 		assert.equal(state.isStarted, true);
+	});
+
+	describe('overrides', () => {
+		it('reports which layers are set', () => {
+			withStorages(() => {
+				const state = liveState(new FakeElement());
+				assert.equal(state.hasOverrides(), false);
+				assert.equal(state.getOverrides(), undefined);
+				state.set('memory');
+				assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+				state.set('session', true);
+				assert.deepEqual(state.getOverrides(), { memory: true, session: true, local: false });
+				state.set('local', false);
+				assert.deepEqual(state.getOverrides(), { memory: true, session: true, local: true });
+				assert.equal(state.hasOverrides(), true);
+				state.set(undefined);
+				assert.deepEqual(state.getOverrides(), { memory: false, session: true, local: true });
+			});
+		});
+
+		it('publishes the ladder winner, not the value just written', () => {
+			withStorages(() => {
+				const state = liveState(new FakeElement());
+				state.start();
+				state.set('local', false);
+				assert.equal(state.value, 'local');
+				state.set('session', true);
+				assert.equal(state.value, 'session');
+				state.set('lower', false);
+				assert.equal(state.value, 'session');
+				state.set('memory');
+				assert.equal(state.value, 'memory');
+				state.set('still-session', true);
+				assert.equal(state.value, 'memory');
+			});
+		});
+
+		it('clears named layers; a full clear restores live detect', () => {
+			withStorages((local, session) => {
+				let fire;
+				const target = fakeTarget({ token: 'live' });
+				const state = liveState(new FakeElement(), {
+					target,
+					source: {
+						target,
+						bind(ctx) { fire = ctx.callback; },
+						unbind() {},
+					},
+				});
+				state.start();
+				state.set('pin', { memory: true, session: true, local: true });
+				assert.equal(session.getItem('t.data-x'), stored('pin'));
+				assert.equal(local.getItem('t.data-x'), stored('pin'));
+				state.set(undefined, { session: true });
+				assert.equal(session.getItem('t.data-x'), null);
+				assert.equal(local.getItem('t.data-x'), stored('pin'));
+				assert.equal(state.value, 'pin');
+				state.set(undefined, { memory: true, session: true, local: true });
+				assert.equal(local.getItem('t.data-x'), null);
+				assert.equal(state.value, 'live');
+				assert.equal(state.hasOverrides(), false);
+				target.token = 'next';
+				fire();
+				assert.equal(state.value, 'next');
+			});
+		});
+
+		it('accepts shorthand and an empty object as memory', () => {
+			withStorages((local, session) => {
+				const state = liveState(new FakeElement());
+				state.start();
+				state.set('from-empty', {});
+				assert.equal(state.getOverrides().memory, true);
+				assert.equal(local.getItem('t.data-x'), null);
+				state.set('from-session', 'session');
+				assert.equal(session.getItem('t.data-x'), stored('from-session'));
+				state.set('from-true-string', 'true');
+				assert.equal(session.getItem('t.data-x'), stored('from-true-string'));
+				state.set('from-local', 'local');
+				assert.equal(local.getItem('t.data-x'), stored('from-local'));
+			});
+		});
+
+		it('keeps boolean false as an override', () => {
+			withStorages((local) => {
+				const state = liveState(new FakeElement());
+				state.start();
+				state.set(false, false);
+				assert.equal(state.value, false);
+				assert.equal(state.hasOverrides(), true);
+				assert.equal(local.getItem('t.data-x'), stored(false));
+			});
+		});
+
+		it('ignores a source tick while any layer is set', () => {
+			withStorages(() => {
+				let fire;
+				const state = liveState(new FakeElement(), {
+					source: {
+						bind(ctx) { fire = ctx.callback; },
+						unbind() {},
+					},
+				});
+				state.start();
+				state.set('held', false);
+				fire();
+				assert.equal(state.value, 'held');
+			});
+		});
+
+		it('falls back to memory when the only requested storage cannot write', () => {
+			withStorages(() => {
+				const state = liveState(new FakeElement());
+				state.start();
+				state.set('held', false);
+				assert.equal(state.value, 'held');
+				assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+			}, { local: undefined });
+		});
+
+		it('falls back to memory when both requested storages fail', () => {
+			withStorages(() => {
+				const state = liveState(new FakeElement());
+				state.start();
+				state.set('held', { session: true, local: true });
+				assert.equal(state.value, 'held');
+				assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+			}, { local: undefined, session: undefined });
+		});
+
+		it('does not fall back to memory when one of two storages succeeds', () => {
+			withStorages((_local, session) => {
+				const state = liveState(new FakeElement());
+				state.start();
+				state.set('held', { session: true, local: true });
+				assert.equal(state.value, 'held');
+				assert.equal(session.getItem('t.data-x'), stored('held'));
+				assert.deepEqual(state.getOverrides(), { memory: false, session: true, local: false });
+			}, { local: undefined });
+		});
+
+		it('does not copy a clear into memory when storage is missing', () => {
+			withStorages(() => {
+				const state = liveState(new FakeElement());
+				state.start();
+				state.set('mem');
+				state.set(undefined, false);
+				assert.equal(state.value, 'mem');
+				assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+			}, { local: undefined });
+		});
+
+		it('falls back to memory when a storage write throws', () => {
+			const errors = [];
+			const prev = console.error;
+			console.error = error => errors.push(error);
+			try {
+				withStorages(() => {
+					const state = liveState(new FakeElement());
+					state.start();
+					state.set('held', false);
+					assert.equal(state.value, 'held');
+					assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+					assert.equal(errors.length, 1);
+				}, { local: failingStorage() });
+			} finally {
+				console.error = prev;
+			}
+		});
 	});
 
 	it('refuses to run after destroy', () => {

@@ -1,61 +1,102 @@
+export const DEFAULT_STORAGE_KEY_PREFIX = 'tabu.clientstate.';
+
+let local;
+let session;
+let captured = false;
+
+function ensureStorage(name) {
+	try {
+		let storage = globalThis[name];
+		if (!storage) return;
+		let probe = DEFAULT_STORAGE_KEY_PREFIX + '__probe';
+		storage.setItem(probe, '1');
+		storage.getItem(probe);
+		storage.removeItem(probe);
+		return storage;
+	} catch {
+		return;
+	}
+}
+
+export function captureStorages() {
+	local = ensureStorage('localStorage');
+	session = ensureStorage('sessionStorage');
+	captured = true;
+}
+
+function ensureCaptured() {
+	if (!captured) captureStorages();
+}
+
 export class Storages {
 
 	#prefix;
-	#local;
-	#session;
 
 	constructor(prefix) {
+		ensureCaptured();
 		this.#prefix = prefix;
-		this.#local = this.#ensureStorage('localStorage');
-		this.#session = this.#ensureStorage('sessionStorage');
 	}
 
-	read(id, session) {
-		return this.#readStorage(id, session ? this.#session : this.#local);
+	#key(id) { return this.#prefix + String(id); }
+
+	read(id, sessionFlag) {
+		return this.#readStorage(id, sessionFlag ? session : local);
 	}
 
-	write(id, value, session) {
-		this.#writeStorage(id, value, session ? this.#session : this.#local);
+	write(id, value, sessionFlag) {
+		return this.#writeStorage(id, value, sessionFlag ? session : local);
+	}
+
+	hasValue(id, sessionFlag) {
+		return this.#hasValue(id, sessionFlag ? session : local);
+	}
+
+	#hasValue(id, storage) {
+		return this.#getItem(id, storage) != null;
+	}
+
+	#getItem(id, storage) {
+		return storage?.getItem(this.#key(id));
 	}
 
 	#readStorage(id, storage) {
-		const raw = storage?.getItem(this.#prefix + String(id));
+		const raw = this.#getItem(id, storage);
 		if (raw == null) return;
-		return parseStored(raw);
+
+		try {
+			return JSON.parse(raw);
+		} catch {
+			console.warn(`read storage failed trying to parse value ${raw}`);
+			return raw;
+		}
 	}
 
 	#writeStorage(id, value, storage) {
-		if (!storage) return;
-		let key = this.#prefix + String(id);
+		if (!storage) return false;
+		let key = this.#key(id);
 		if (value === undefined) storage.removeItem(key);
-		else storage.setItem(key, stringifyStored(value));
-	}
-
-	#ensureStorage(name) {
-		try {
-			let storage = globalThis[name];
-			if (!storage) return;
-			let probe = this.#prefix + '__probe';
-			storage.setItem(probe, '1');
-			storage.getItem(probe);
-			storage.removeItem(probe);
-			return storage;
-		} catch {
-			return;
+		else {
+			try {
+				const jsonString = JSON.stringify(value);
+				storage.setItem(key, jsonString);
+				return true;
+			} catch (exc) {
+				console.error(exc);
+				return false;
+			}
 		}
 	}
 
 }
 
-function stringifyStored(value) {
-	return JSON.stringify(value);
-}
+const STORAGES = new Map();
 
-function parseStored(raw) {
-	try {
-		return JSON.parse(raw);
-	} catch {
-		console.warn(`parse failed trying to parse value ${raw}`);
-		return;
+export function getStoragesSingleton(prefix) {
+	prefix = prefix ?? DEFAULT_STORAGE_KEY_PREFIX;
+	let exist = STORAGES.get(prefix);
+	if (exist == null) {
+		exist = new Storages(prefix);
+		STORAGES.set(prefix, exist);
 	}
+	return exist;
 }

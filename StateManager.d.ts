@@ -1,27 +1,41 @@
-import type { StateOptions } from './State.js';
+import type { State, StateOptions, StateOverrides, StateSetWhere } from './State.js';
 import type { ManagerHooks } from './hooks.js';
 
+export type AddOptions = {
+	replace?: boolean;
+	detach?: boolean;
+	dontStart?: boolean;
+};
+
+export type RemoveOptions = {
+	detach?: boolean;
+};
+
+type StateBagEntry = State | (Omit<StateOptions, 'id'> & { id?: any });
+
 export type StateManagerOptions = {
-	states?: Record<string, Omit<StateOptions, 'id'> & { id?: any }> | StateOptions[];
+	states?: Record<string, StateBagEntry> | Array<State | StateOptions>;
 	storageKeyPrefix?: string;
 	attrTarget?: Element;
 	stateOptions?: Omit<StateOptions, 'id'>;
 	hooks?: ManagerHooks;
+	autoStartStates?: boolean;
 };
 
 export class StateManager {
-	readonly isStarted: boolean;
+	autoStartStates: boolean;
 	readonly values: Record<string, unknown>;
 	constructor(options?: StateManagerOptions);
-	add(stateOptions: StateOptions, dontStart?: boolean): void;
-	storeValue(stateId: any, value: unknown, where?: boolean): boolean;
-	setTarget(stateId: any, target: unknown | (() => unknown), dontStart?: boolean): boolean;
+	add<T = unknown>(stateOrOptions: State | StateOptions<T>, addOptions?: AddOptions): State;
+	get(id: string | number | symbol): State | undefined;
+	set(stateId: any | State, value: unknown, where?: StateSetWhere): void;
+	setTarget(stateId: any | State, target: unknown | (() => unknown), dontStart?: boolean): void;
+	hasOverrides(stateId: any | State): boolean;
+	getOverrides(stateId: any | State): StateOverrides | undefined;
 	remove(): void;
-	remove(stateId: any): void;
+	remove(stateId: any | State, options?: RemoveOptions): void;
 	start(): void;
-	start(startAllStates: boolean): void;
-	start(stateId: any): void;
+	start(id: string | number | symbol | State): void;
 	stop(): void;
-	stop(stopManager: boolean): void;
-	stop(stateId: any): void;
+	stop(id: string | number | symbol | State): void;
 }

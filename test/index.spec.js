@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import * as pkg from '../index.js';
 import {
+	State,
 	StateManager,
 	viewport,
 	workspace,
@@ -11,6 +13,7 @@ import {
 
 describe('index', () => {
 	it('re-exports the host and named presets', () => {
+		assert.equal(typeof State, 'function');
 		assert.equal(typeof StateManager, 'function');
 		assert.equal(typeof viewport, 'function');
 		assert.equal(typeof workspace, 'function');
@@ -27,5 +30,13 @@ describe('index', () => {
 		assert.equal(colorScheme().attrName, 'data-color-scheme');
 		assert.equal(orientation().id, 'portrait');
 		assert.equal(orientation().attrName, 'data-orientation');
+		assert.equal('DEFAULT_STORAGE_KEY_PREFIX' in pkg, false);
+		assert.equal('getStoragesSingleton' in pkg, false);
+		assert.equal('captureStorages' in pkg, false);
+		assert.equal('State' in pkg, true);
+		assert.equal('listen' in pkg, false);
+		assert.equal('unlisten' in pkg, false);
+		assert.equal('ensureState' in pkg, false);
+		assert.equal('requireId' in pkg, false);
 	});
 });

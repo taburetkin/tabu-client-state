@@ -5,13 +5,24 @@
 ![vanilla](https://img.shields.io/badge/vanilla-JavaScript-f7df1e?logo=javascript&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-declarations-3178c6?logo=typescript&logoColor=white)
 
-A client-state manager for **styles and rendering** in an HTML UI application — not a site, not a landing page. Discrete tokens (`xs`, `dark`, `yes`) on `<html>` — CSS skips `@media`. The app reads the same states: a size token, or a boolean for a media query.
+This package is for **HTML applications**. Discrete tokens (`xs`, `dark`, `yes`) on a DOM node — CSS skips `@media`, the app reads the same states in JS. Anything else is at your own risk.
 
-The library does that, after the application starts. It does not own the first HTML frame.
+The library writes those tokens after the application starts.
+
+## Minuses
+
+**No first frame, no SSR.** That follows from what this package is for. An HTML application starts, then this library writes the tokens. The first HTML frame is not its job. A site, a landing, SSR — you already accepted the risk.
+
+**No built-in throttle or debounce.** Those helpers already live in every app. Shipping another pair would be a second wheel. Pass the limiter the application already uses.
+
+**No HTML boolean attributes.** CSS does not key off presence-only flags as cleanly as off `name="value"`. A token on the attribute is what this product writes. `<html hidden>` is the wrong shape for that, and it is not needed here.
+
+**A throw in a hook is not caught.** The error stops the call. That surfaces in tests. Swallowing it would hide a broken hook and leave you staring at the wrong attribute.
 
 ## Contents
 
-- [Reference](reference.md)
+- [Reference](https://github.com/taburetkin/tabu-client-state/blob/master/reference.md)
+- [Minuses](#minuses)
 - [Why](#why)
 	- [What it is good at](#what-it-is-good-at)
 	- [Why this beats `@media`](#why-this-beats-media)
@@ -19,8 +30,8 @@ The library does that, after the application starts. It does not own the first H
 - [How to](#how-to)
 	- [Install and import](#install-and-import)
 	- [Where it runs](#where-it-runs)
-	- [Add a state](#add-a-state)
-	- [Slot, attribute, change](#slot-attribute-change)
+	- [A state](#a-state)
+	- [Value, attribute, change](#value-attribute-change)
 	- [Source](#source)
 	- [Limit](#limit)
 	- [Read, pin, persist](#read-pin-persist)
@@ -31,15 +42,27 @@ The library does that, after the application starts. It does not own the first H
 
 ## Why
 
-You decide what to watch. A state is `{ id, value, source }`. `id` names it, `value` returns the token JS branches on, `source` says when to run it again. The runtime writes that token as an HTML attribute. Viewport, workspace, color scheme, hover, and orientation ship as presets if you do not want to write the object yourself — they are the same object `add` takes.
+You decide what to watch. A state is `{ id, value, source }`. `id` names it, `value` returns the token JS branches on, `source` says when to run it again. The runtime writes that token as an HTML attribute. Viewport, workspace, color scheme, hover, and orientation ship as presets if you do not want to write the object yourself — they are the same object `State` and `add` take.
 
 ```js
-import { StateManager, viewport } from 'tabu-client-state'
+import { State, viewport } from 'tabu-client-state'
 
-const cs = new StateManager()
-cs.add(viewport())
+const vp = new State(viewport())
+vp.start()
+vp.value // 'lg' — also <html data-vp="lg">
+```
+
+Several states, one vitrine — a `StateManager`:
+
+```js
+import { StateManager, viewport, colorScheme } from 'tabu-client-state'
+
+const cs = new StateManager({
+	states: [viewport(), colorScheme()],
+})
 cs.start()
-cs.values.vp // 'lg' — also <html data-vp="lg">
+cs.values.vp   // 'lg'
+cs.values.dark // true — <html data-vp="lg" data-color-scheme="dark">
 ```
 
 ```css
@@ -65,7 +88,7 @@ Detect is the default. The app can always pin a token and ignore the sensor — 
 cs.values.vp = 'lg' // desktop layout on a narrow screen
 ```
 
-The runtime watches the environment, picks a value, and writes an attribute on `<html>` — or any host you pass. The stylesheet selects on those attributes. `cs.values` is what the app branches on.
+The runtime watches the environment, picks a value, and writes an attribute on `<html>` — or any host you pass. The stylesheet selects on those attributes. `state.value` / `cs.values` is what the app branches on.
 
 Instead of this:
 
@@ -110,16 +133,16 @@ The runtime writes the attributes:
 <html data-vp="xs" data-color-scheme="dark">
 ```
 
-This is not a reactive store, not a CSS framework, and not an event bus. `new StateManager()` tracks nothing until you `add` states and `start()`.
+This is not a reactive store, not a CSS framework, and not an event bus. A `State` writes nothing until `start()`. A manager tracks nothing until you give it states and start them.
 
-Every public name, with signatures, is in [reference.md](reference.md).
+Every public name, with signatures, is in the [reference](https://github.com/taburetkin/tabu-client-state/blob/master/reference.md).
 
 ### What it is good at
 
-- One token, two readers: CSS keys off the attribute, JS keys off `values`.
-- Overrides are first-class. Pin in memory, or persist to `localStorage` / `sessionStorage`. Detect pauses until you unlock.
-- Tests pin `cs.values.vp = 'xs'` and get the `xs` rules. The stylesheet does not need a resize.
-- A state is an ordinary object. Presets are factories for that object. Mutate what they return, or skip them.
+- One token, two readers: CSS keys off the attribute, JS keys off the value.
+- Overrides are first-class. Pin in memory, or persist to `localStorage` / `sessionStorage`. Detect pauses while any layer is set.
+- Tests pin `vp.value = 'xs'` or `cs.values.vp = 'xs'` and get the `xs` rules. The stylesheet does not need a resize.
+- A state is a `State`. Presets are factories for the options it takes. Mutate what they return, or skip them.
 - `hooks` are optional slots. Plug in the bus you already have. The library does not import one.
 - ESM, adjacent `.d.ts`, zero runtime dependencies. Throttle and debounce are not in the package.
 
@@ -141,23 +164,24 @@ The `xs` + `dark` rules apply on a 1440px desktop window. A test pins the token 
 `@media (max-width: 767px)` and `prefers-color-scheme` are read-only. A person cannot say “compact layout on my ultrawide” or “dark, even if the OS is light”.
 
 ```js
-cs.storeValue('dark', true, false)   // persist dark
-cs.values.vp = 'xs'                  // compact, live detect paused
-cs.values.dark = undefined           // back to detect
+cs.set('dark', true, false)   // persist dark
+cs.values.vp = 'xs'           // compact, live detect paused
+cs.values.dark = undefined    // back to detect
 ```
 
 The CSS does not change. Persist theme and density; leave viewport live if pinning `lg` on a phone would break the layout. That choice is the app’s.
 
 ### What it will not do
 
+- It is for HTML applications. A site, a landing, SSR, a store — at your own risk.
 - It writes named tokens as HTML attributes. That is the product. It is not a store, a CSS framework, an event bus, a polyfill, or a test kit.
-- It does not auto-start in the constructor.
+- It does not auto-start. `autoStartStates` is off unless you turn it on.
 - It does not replace every media query (print, raw pointer capability — keep those if they are device facts, not user choices).
 - It is not a place to stash measurements (`innerWidth`).
 - It does not ship throttle / debounce, source factories, or token helpers. Five named presets; anything else is `{ id, value, source }`.
 - It does not polyfill `matchMedia`, `ResizeObserver`, or storage. A test environment that lacks them supplies mocks.
 - It does not clear storage for you.
-- It does not own the first HTML frame. No SSR renderer, no attributes until `start()`. A page that must look finished before the application runs should keep `@media`. An HTML UI app starts, then this library writes the tokens.
+- It does not own the first HTML frame. No SSR renderer, no attributes until `start()`. A page that must look finished before the application runs should keep `@media`. An HTML app starts, then this library writes the tokens.
 - It does not catch errors from hooks you passed.
 - It does not write HTML boolean attributes (presence-only). Always `name="value"`, or the attribute is removed.
 
@@ -170,58 +194,62 @@ npm install tabu-client-state
 ```
 
 ```js
-import { StateManager } from 'tabu-client-state'
+import { State, StateManager, viewport } from 'tabu-client-state'
 ```
 
 TypeScript uses adjacent `.d.ts` files. There is no compile step.
 
-You add states. Named presets (`viewport`, `workspace`, `hover`, `colorScheme`, `orientation`) are optional factories for the same object.
+`State` is the unit. `StateManager` holds several and mirrors `set` / `setTarget` / overrides onto an id or a state. Named presets (`viewport`, `workspace`, `hover`, `colorScheme`, `orientation`) are optional factories for the same options object.
 
 ### Where it runs
 
 A browser page. The library calls browser objects. It does not invent them, and it does not soften their absence.
 
-The manager reads `document.documentElement` unless you pass `attrTarget`. That node needs `getAttribute`, `setAttribute`, and `removeAttribute`.
+Default `attrTarget` is `document.documentElement`. That node needs `getAttribute`, `setAttribute`, and `removeAttribute`.
 
 Storage uses `localStorage` and `sessionStorage`. A missing or blocked API is swallowed. That is the only environment hole the library covers.
 
-Named presets use these APIs. If you `add` the preset, they must exist — a test runner stubs them.
+Named presets use these APIs. If you construct the preset, they must exist — a test runner stubs them.
 
-| You add | Needs |
+| You use | Needs |
 | --- | --- |
-| `viewport` | `window.matchMedia` |
-| `hover`, `colorScheme`, `orientation` | `window.matchMedia` (read on `add`) |
-| `workspace` | `ResizeObserver` when there is a target, and `clientWidth` on that node |
+| `viewport` | `window.matchMedia` to read and bind (throws without it) |
+| `hover`, `colorScheme`, `orientation` | `window.matchMedia` when the `State` is built |
+| `workspace` | `ResizeObserver` when there is a target, and `clientWidth` on that node. No node — deaf, no observer |
 
 A custom `bind` uses whatever you call.
 
-The package is ESM. A page loads it with a bundler or `<script type="module">`. `require()` does not load it. The syntax floor is private fields (`#states`) plus `?.` and `??`.
+The package is ESM. A page loads it with a bundler or `<script type="module">`. `require()` does not load it. The syntax floor is private fields (`#value`) plus `?.` and `??`.
 
-### Add a state
+### A state
 
-Three shapes. Optional on all of them: `attrName`, `attrTarget`, `attrValue`, `hooks`, `proxyHooks`.
+Three shapes. Optional on all of them: `attrName`, `attrTarget`, `attrValue`, `hooks`, `storageKeyPrefix`.
 
 | Shape | What it is | Required |
 | --- | --- | --- |
-| `{ id }` | Manual state. Only a pin. Unlock goes to `undefined` | `id` |
+| `{ id }` | Manual state. Only a pin. No layers left goes to `undefined` | `id` |
 | `{ id, value }` | Manual with a default. `value` is a function or a constant | `id`, `value` |
 | `{ id, value, source: { bind, unbind } }` | Autodetect. `target` is optional | `id`, `value`, `bind`, `unbind` |
 
-If either `bind` or `unbind` is present, both must be functions, and `value` must be a function. Otherwise the runtime throws `bind must be a function`, `unbind must be a function`, or `value must be a function`. A manual state omits the pair. A function `value` runs on start and on unlock (`values.id = undefined` or `storeValue(id, undefined)`). A constant `value` is that default: start publishes it, unlock restores it. `{ id }` unlocks to `undefined`.
+If either `bind` or `unbind` is present, both must be functions, and `value` must be a function. Otherwise the runtime throws `bind must be a function`, `unbind must be a function`, or `value must be a function`. A manual state omits the pair. A function `value` runs on start and when no override remains (`value = undefined` / `values.id = undefined` only clears memory). A constant `value` is that default. `{ id }` with no layers left goes to `undefined`.
 
-Constructor **registers** states. It does not start them, does not write attributes, does not set values. `start()` does.
+`new State(options)` **builds** a stopped state. It does not write the attribute. `start()` does. A manager constructor **registers** states the same way — still stopped, unless you set `autoStartStates: true`. `start()` on the manager starts every registered state; `start(id)` / `start(state)` starts one.
 
-`id` names the state (`values[id]`, storage key). Required: anything except `undefined` and `""`. The runtime stores `String(id)`.
+`id` names the state (`state.id`, `values[id]`, storage key). Required: anything except `null`, `undefined`, and `""`. The runtime stores `String(id)`.
 
-`value` reads `ctx` and returns what JS should branch on — a token, a boolean, or `undefined` if detect found nothing. That return is a normal slot write. `source` says when to run `value` again. `attrName` is the HTML attribute (`id` if omitted). `attrValue` maps the JS value onto that attribute. `attrTarget` is the node that receives it (the manager’s `attrTarget`, default `<html>`). `undefined` and `null` from `attrValue` (or the JS value, if there is no mapping) remove the attribute; `''` writes `attr=""`. The other `undefined` is `values.id = undefined`: unlock, wipe storage, run live `value()` once.
+`value` reads `ctx` and returns what JS should branch on — a token, a boolean, or `undefined` if detect found nothing. That return is a normal value write. `source` says when to run `value` again. `attrName` is the HTML attribute (`id` if omitted). `attrValue` maps the JS value onto that attribute. `attrTarget` is the node that receives it (`<html>` by default; a manager-built state takes the manager’s target). `undefined` and `null` from `attrValue` (or the JS value, if there is no mapping) remove the attribute; `''` writes `attr=""`.
 
 The library does not restrict `attrName` — any string goes to `setAttribute`. It does not write HTML boolean attributes (`<html hidden>`): the attribute is always `name="value"`, or it is removed. A JS boolean without `attrValue` becomes `attr="true"` / `attr="false"`. Custom names should use the `data-` prefix. Presets do that: `id` is `vp` (`cs.values.vp`), `attrName` is `data-vp`. Pass `id` and/or `attrName` to override.
 
 Values are discrete: size tokens (`'xs'`) or booleans. Putting `innerWidth` on the attribute so JS can `cs.values.width > 1000` is the antipattern this library exists to avoid.
 
 ```js
+const vp = new State(viewport())
+// or
 cs.add(viewport())
 ```
+
+`add` returns the `State`. `cs.get('vp')` is the same instance. `get` takes an id, not a state.
 
 A media query. JS keeps a boolean; the attribute gets the token:
 
@@ -255,34 +283,35 @@ body[vp="xs"] .drawer { display: none; }
 
 `id` is the `values` key and the storage key. `attrName` is the HTML attribute (`id` if omitted). Default `viewport()`: `cs.values.vp`, attribute `data-vp`.
 
-Any state start starts the manager. Stopping states does not stop the manager. `start()` is `start(true)`. `stop()` is `stop(true)`. Overloads are in the [reference](reference.md#start).
+The manager is not a started entity. `start()` / `stop()` talk to states. `start()` does not turn `autoStartStates` on. `remove` is the dangerous one: default is `destroy` (restore the original attribute). `{ detach: true }` unhooks the instance and leaves it alive. Signatures are in the [reference](https://github.com/taburetkin/tabu-client-state/blob/master/reference.md#StateManager).
 
-### Slot, attribute, change
+### Value, attribute, change
 
-Pin is `cs.values.id = x` or `storeValue`. Unlock is `= undefined`: wipe storage, one live `value()` — not a write of `undefined` into the slot. `change` only when the state is started and the new slot differs.
+Pin is `state.value = x`, `state.set(x)`, `cs.values.id = x`, or `cs.set(id, x)`. `undefined` clears the layers you name — not a write of `undefined` into the value. If any layer remains, that winner is published. If none remain, one live `value()`. `change` only when the state is started and the new value differs.
 
-| | Slot | Attribute | `change` |
+| | Value | Attribute | `change` |
 | --- | --- | --- | --- |
-| `add` without `start` | empty | — | no |
+| construct / `add` without `start` | empty | — | no |
 | `start`, live detect | `value()` | write | if ≠ |
 | `start`, memory pin | keep pin | write | if ≠ |
-| `start`, storage hit | stored, then lock | write | if ≠ |
-| pin, started | pin, lock | write | if ≠ |
-| pin, stopped | pin, lock | write | no |
-| `start` after that pin | keep pin | write | if ≠ |
-| unlock, started | live / constant / `undefined` | write | if ≠ pin |
-| unlock, stopped | live / constant / `undefined` | write | no |
+| `start`, session / local hit | stored | write | if ≠ |
+| pin, started | winner of the layers | write | if ≠ |
+| pin, stopped | winner of the layers | write | no |
+| `start` after that pin | keep winner | write | if ≠ |
+| last layer cleared, started | live / constant / `undefined` | write | if ≠ |
+| last layer cleared, stopped | live / constant / `undefined` | write | no |
 | source tick, live | `value()` | write | if ≠ |
-| source tick, locked | — | leave | no |
+| source tick, any override | — | leave | no |
 | `stop` | keep | leave | no |
-| `remove` | gone | restore origin | no |
+| `destroy` / `remove` | gone | restore origin | no |
+| `remove(..., { detach: true })` | keep | leave | no |
 
 ### Source
 
 When to run `value` again on an autodetect state. `bind` and `unbind` come as a pair: both omitted (manual state), or both present as functions. One without the other throws. `target` is optional. Named presets fill those in.
 
 ```js
-cs.add({
+new State({
 	id: 'vp',
 	attrName: 'data-vp',
 	value(ctx) {
@@ -302,11 +331,11 @@ cs.add({
 
 `bind`, `unbind`, and `value` share one `ctx`. It already has `target` (from `source.target`) and `callback` (call it to re-run `value` and publish). `bind` may store more on it — `value` sees those fields.
 
-On start, `bind` runs. If the state is already locked in memory, that slot is published and detect stays paused. Else a stored override is published and the state locks. Else `value` runs once. The listener should call `ctx.callback()`. On stop, `ctx.callback.cancel?.()` then `unbind`. The return of `bind` is ignored.
+On start, `bind` runs. If any override layer is set, that winner is published and detect stays paused. Else `value` runs once. The listener should call `ctx.callback()`. On stop, `ctx.callback.cancel?.()` then `unbind`. The return of `bind` is ignored.
 
-A function `target` is called on `add` / `setTarget`, not on `start`.
+A function `target` is called when the source is set up (`State` / `add` / `setTarget`), not on `start`.
 
-Fields and `ctx` are in the [reference](reference.md#SourceOptions).
+Fields and `ctx` are in the [reference](https://github.com/taburetkin/tabu-client-state/blob/master/reference.md#SourceOptions).
 
 ### Limit
 
@@ -323,7 +352,7 @@ function limit(fn) {
 	return wrapped
 }
 
-cs.add({
+new State({
 	id: 'vp',
 	attrName: 'data-vp',
 	value: ({ target }) => target.innerWidth < 768 ? 'xs' : 'lg',
@@ -344,22 +373,27 @@ The wrapper is yours — not a package export. `workspace({ limit })` takes the 
 
 ### Read, pin, persist
 
-Read order on `start`: **memory lock → session → local → live `value()`**. A memory pin wins over anything in storage.
+Three independent layers. Read order: **memory → session → local → live `value()`**. The published value is always the highest layer that is set.
 
-`values.theme = 'dark'` locks in memory: the slot is written, detect pauses, storage is not touched. `storeValue(id, value, where)` does the same when `where` is omitted, and also writes storage when it is `true` / `false`:
+`state.value = 'dark'` and `cs.values.theme = 'dark'` write memory only. `set(value, where)` picks the layers. Omitted `where` is memory. `true` / `'session'` is session. `false` / `'local'` is local. An object names any combination.
 
 ```js
-cs.values.theme = 'dark'                 // memory lock — beats storage on the next start
-cs.storeValue('theme', 'dark')           // same, memory
-cs.storeValue('theme', 'dark', false)    // localStorage
-cs.storeValue('theme', 'night', true)    // sessionStorage
-cs.values.theme = undefined              // unlock, wipe storage, one live value()
-cs.storeValue('hover', false, false)     // stores boolean false; attribute stays "no"
+cs.values.theme = 'dark'                                 // memory
+cs.set('theme', 'dark')                                  // same
+cs.set('theme', 'dark', false)                           // localStorage
+cs.set('theme', 'night', true)                           // sessionStorage
+cs.set('theme', 'dark', { memory: true, local: true })   // this runtime and every new one
+cs.values.theme = undefined                              // clear memory only
+cs.set('theme', undefined, { session: true })            // clear session; memory / local stay
+cs.set('theme', undefined, { memory: true, session: true, local: true })
+cs.set('hover', false, false)                            // stores boolean false; attribute stays "no"
 ```
 
-Key: `storageKeyPrefix + id` (default `tabu.clientstate.theme`). What you store is what you read: the JS value, as JSON. A token stays a string; `true` stays a boolean. Not the attribute string. A raw string that is not JSON is warned about and treated as missing — start then uses live `value()` unless a memory lock is already on. Slot, attribute, and `change` for pin / unlock / start: [the table](#slot-attribute-change).
+A write that cannot persist (quota, missing API, a value JSON cannot serialize) is logged. If every storage you asked for failed, the value is kept in memory for this runtime. Clearing a layer does not fall back.
 
-Unavailable storage is swallowed. `remove` does **not** clear storage. A later `add` with the same `id` is not locked; on `start` it picks session, then local.
+Key: `storageKeyPrefix + id` (default `tabu.clientstate.theme`). What you store is what you read: the JS value, as JSON. A token stays a string; `true` stays a boolean. Not the attribute string. A raw string that is not JSON is warned about and used as the stored value. Value, attribute, and `change` for pin / unlock / start: [the table](#value-attribute-change).
+
+Unavailable storage is swallowed on probe. `destroy` / `remove` do **not** clear storage. A later state with the same `id` has no memory layer; on `start` it picks session, then local.
 
 `{ ...cs.values }` copies a snapshot. An unknown id reads as `undefined`; assigning to one throws `unknown state`.
 
@@ -372,36 +406,35 @@ Need only a value flip — `hooks.change`, or `hooks.all` and look at the name. 
 ```js
 const cs = new StateManager({
 	hooks: {
-		all(name, ...args) {
-			events.emit(name, ...args)
+		all(hook, state, ...args) {
+			events.emit(hook, state, ...args)
 		},
 	},
 	stateOptions: {
 		hooks: {
-			change(id, value) {
-				console.log(id, value)
+			change(value) {
+				console.log(this.id, value)
 			},
 		},
 	},
 })
 ```
 
-A named slot runs, then `all`, then the manager wire. `this` is the state for state slots and the manager for manager slots. The manager never receives the state instance. Manager names are prefixed: `state:change`, `before:state:start`.
+A named slot runs, then `all`, then the manager wire. Named state slots: `this` is the state, no `id` argument — `change(value)`, `start(value)`, the rest empty. State `all` and every manager slot: `(hook, state, ...args)`. Manager `this` is the manager. Manager names are prefixed: `state:change`, `before:state:start`.
 
-`hooks` on `add` replaces the whole bag from `stateOptions`. Names are not merged. Put every slot you still want on that object.
+`hooks` on `add` replaces the whole bag from `stateOptions`. Names are not merged. Put every slot you still want on that object. A ready `State` keeps the hooks it was built with.
 
-Overwrite `proxyHooks` with `false` to turn the manager wire off — on `stateOptions` for every state, or on one `add`. Prefer `false`. A function in that slot is at your own risk.
-
-`start` receives `(id, value)`. `before*` is a notice, not a veto. When `change` fires — [the table](#slot-attribute-change).
+`before*` is a notice, not a veto. When `change` fires — [the table](#value-attribute-change).
 
 A throw in a hook you passed stops the call and the method that invoked it. The library does not catch it. If you need a callback to isolate its own errors, wrap it yourself — for example with `tabu-js-res`.
 
 ### Presets
 
-Factories for the same object `add` takes. Skip them and write the object; or start from a preset and mutate what it returns.
+Factories for the same object `State` and `add` take. Skip them and write the object; or start from a preset and mutate what it returns.
 
 ```js
 import {
+	State,
 	StateManager,
 	viewport,
 	workspace,
@@ -414,6 +447,9 @@ const cs = new StateManager({
 	states: [viewport(), workspace(), hover(), colorScheme(), orientation()],
 })
 cs.start()
+
+const vp = new State(viewport())
+vp.start()
 ```
 
 | Preset | `id` | Attribute | JS value | Attribute tokens |
@@ -462,7 +498,7 @@ export class AppStateManager extends StateManager {
 	}
 
 	toggleTheme() {
-		this.storeValue('dark', !this.values.dark, false)
+		this.set('dark', !this.values.dark, false)
 	}
 }
 
@@ -470,7 +506,7 @@ export const clientState = new AppStateManager()
 clientState.start()
 ```
 
-One instance per page is the usual pattern. Bind workspace nodes when they exist (`ref` / `onMounted` / `ngAfterViewInit`). Do not tear the schema down when a view leaves: the next `setTarget` is enough. `remove()` belongs on a full schema reset, not a view leaving.
+One manager per page is the usual pattern. One `State` imported around the app is enough when you only have one token. Bind workspace nodes when they exist (`ref` / `onMounted` / `ngAfterViewInit`). Do not tear the schema down when a view leaves: the next `setTarget` is enough. `remove()` belongs on a full schema reset, not a view leaving.
 
 ### More CSS
 
@@ -529,4 +565,4 @@ npm run test:types
 npm run coverage
 ```
 
-Tests use `node:test`. The `test/` tree mirrors sources (`StateManager.js` → `test/StateManager.spec.js`).
+Tests use `node:test`. The `test/` tree mirrors sources (`State.js` → `test/State.spec.js`).

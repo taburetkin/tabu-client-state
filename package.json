@@ -5,12 +5,28 @@
   "main": "index.js",
   "types": "./index.d.ts",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
     }
   },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "StateManager.js",
+    "StateManager.d.ts",
+    "State.js",
+    "State.d.ts",
+    "source.js",
+    "source.d.ts",
+    "presets.js",
+    "presets.d.ts",
+    "Storages.js",
+    "Storages.d.ts",
+    "hooks.d.ts"
+  ],
   "scripts": {
     "test": "node --test \"test/**/*.spec.js\"",
     "test:types": "tsc -p test/tsconfig.json",
@@ -20,10 +36,23 @@
     "state",
     "client-state",
     "responsive",
+    "breakpoints",
+    "media-query",
+    "dark-mode",
+    "color-scheme",
+    "theme",
     "fe"
   ],
   "author": "dimtabu <dima.taburetkin@gmail.com>",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/taburetkin/tabu-client-state.git"
+  },
+  "homepage": "https://github.com/taburetkin/tabu-client-state#readme",
+  "bugs": {
+    "url": "https://github.com/taburetkin/tabu-client-state/issues"
+  },
   "devDependencies": {
     "c8": "^12.0.0",
     "typescript": "^7.0.2"

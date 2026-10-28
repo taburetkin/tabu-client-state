@@ -1,5 +1,5 @@
-import type { StateOptions } from './State.js';
-import type { StateManager } from './StateManager.js';
+import type { State, StateOptions } from './State.js';
+import type { AddOptions, StateManager } from './StateManager.js';
 
 export type StateHookName =
 	| 'before:start'
@@ -13,6 +13,8 @@ export type StateHookName =
 export type ManagerHookName =
 	| 'before:add'
 	| 'add'
+	| 'before:detach'
+	| 'detach'
 	| 'before:state:start'
 	| 'state:start'
 	| 'before:state:stop'
@@ -29,31 +31,29 @@ export type StateHookHost = {
 };
 
 export type StateHooks = {
-	all?: (this: StateHookHost, hook: StateHookName, ...args: unknown[]) => void;
-	beforeStart?: (this: StateHookHost, id: string) => void;
-	start?: (this: StateHookHost, id: string, value: unknown) => void;
-	beforeStop?: (this: StateHookHost, id: string) => void;
-	stop?: (this: StateHookHost, id: string) => void;
-	beforeDestroy?: (this: StateHookHost, id: string) => void;
-	destroy?: (this: StateHookHost, id: string) => void;
-	change?: (this: StateHookHost, id: string, value: unknown) => void;
+	all?: (this: StateHookHost, hook: StateHookName, state: StateHookHost, value?: unknown) => void;
+	beforeStart?: (this: StateHookHost) => void;
+	start?: (this: StateHookHost, value: unknown) => void;
+	beforeStop?: (this: StateHookHost) => void;
+	stop?: (this: StateHookHost) => void;
+	beforeDestroy?: (this: StateHookHost) => void;
+	destroy?: (this: StateHookHost) => void;
+	change?: (this: StateHookHost, value: unknown) => void;
 };
 
 export type ManagerHooks = {
 	all?: (this: StateManager, hook: ManagerHookName, ...args: unknown[]) => void;
-	beforeAdd?: (this: StateManager, stateOptions: StateOptions, dontStart?: boolean) => void;
-	add?: (this: StateManager, id: string) => void;
-	beforeStateStart?: (this: StateManager, id: string) => void;
-	stateStart?: (this: StateManager, id: string, value: unknown) => void;
-	beforeStateStop?: (this: StateManager, id: string) => void;
-	stateStop?: (this: StateManager, id: string) => void;
-	beforeStateDestroy?: (this: StateManager, id: string) => void;
-	stateDestroy?: (this: StateManager, id: string) => void;
-	stateChange?: (this: StateManager, id: string, value: unknown) => void;
+	beforeAdd?: (this: StateManager, hook: 'before:add', stateOptions: State | StateOptions, addOptions?: AddOptions) => void;
+	add?: (this: StateManager, hook: 'add', state: State) => void;
+	beforeDetach?: (this: StateManager, hook: 'before:detach', state: State) => void;
+	detach?: (this: StateManager, hook: 'detach', state: State) => void;
+	beforeStateStart?: (this: StateManager, hook: 'before:state:start', state: State) => void;
+	stateStart?: (this: StateManager, hook: 'state:start', state: State, value: unknown) => void;
+	beforeStateStop?: (this: StateManager, hook: 'before:state:stop', state: State) => void;
+	stateStop?: (this: StateManager, hook: 'state:stop', state: State) => void;
+	beforeStateDestroy?: (this: StateManager, hook: 'before:state:destroy', state: State) => void;
+	stateDestroy?: (this: StateManager, hook: 'state:destroy', state: State) => void;
+	stateChange?: (this: StateManager, hook: 'state:change', state: State, value: unknown) => void;
 };
-
-export type StateProxyHooks =
-	| false
-	| ((this: StateHookHost, hook: StateHookName, ...args: unknown[]) => void);
 
 export type ToCamelCase = (str: string) => string;

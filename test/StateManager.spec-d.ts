@@ -1,4 +1,4 @@
-import { State, StateManager, type AddOptions, type StateManagerOptions } from '../index.js';
+import { State, StateManager, type AddOptions, type StateManagerOptions, type StateOverrides } from '../index.js';
 import type { StateOptions } from '../State.js';
 import { workspace, type LimitFn, type SourceCtx } from '../index.js';
 
@@ -77,10 +77,14 @@ cs.set('data-theme', 'dark');
 cs.set(added, 'dark', true);
 cs.set('data-theme', 'dark', false);
 cs.set('data-theme', 'dark', 'session');
+cs.set('data-theme', 'dark', 'local');
 cs.set('data-theme', 'dark', { memory: true, local: true });
 cs.set('data-theme', undefined, { memory: true, session: true, local: true });
+cs.hasOverrides();
 cs.hasOverrides('data-theme');
 cs.hasOverrides(added);
+const allPins: Record<string, StateOverrides> | undefined = cs.getOverrides();
+void allPins;
 cs.getOverrides('data-theme');
 cs.getOverrides(added);
 cs.setTarget('data-theme', {} as EventTarget);
@@ -96,6 +100,8 @@ cs.remove(added, { detach: true });
 cs.remove();
 const got: State | undefined = cs.get('data-theme');
 void got;
+const listed: State[] = cs.states();
+void listed;
 
 const addOpts: AddOptions = { replace: true, detach: true, dontStart: true };
 cs.add({ id: 'x', value: () => 'x' }, addOpts);
@@ -126,6 +132,9 @@ void new StateManager({
 });
 
 const withMap: StateManagerOptions = {
+	initialize() {
+		void this.values;
+	},
 	autoStartStates: false,
 	states: {
 		theme: { value: () => 'light' },

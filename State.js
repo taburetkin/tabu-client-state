@@ -69,7 +69,17 @@ export class State {
 		if (!dontStart) this.start();
 	}
 
-	#sync() { this.#source.sync(); }
+	#sync(overrided) { 
+		if (overrided === undefined) {
+			this.isStarted && this.#source.start();
+			this.#source.sync();
+			//this.#sync();
+		}
+		else {
+			this.#source.stop();
+			this.#setValue(overrided);
+		}		
+	}
 
 	#initSource() {
 		const source = createSource(this.#sourceOptions, this.#valueGetter, this.#updateForSource);
@@ -82,10 +92,11 @@ export class State {
 	}
 
 	getOverrides() {
-		const memory = this.#memoryOverride !== undefined;
-		const session = this.#storages.hasValue(this.id, true);
-		const local = this.#storages.hasValue(this.id, false);
-		if (memory || session || local) {
+		const memory = this.#memoryOverride;
+		const session = this.#storages.read(this.id, true);
+		const local = this.#storages.read(this.id, false);
+		
+		if (memory !== undefined || session !== undefined || local !== undefined) {
 			return { memory, session, local };
 		}
 	}
@@ -95,15 +106,7 @@ export class State {
 		setOptions = normalizeSetOptions(setOptions);
 
 		const overrided = this.#setOverride(value, setOptions);
-
-		if (overrided === undefined) {
-			this.isStarted && this.#source.start();
-			this.#sync();
-		}
-		else {
-			this.#source.stop();
-			this.#setValue(overrided);
-		}
+		this.#sync(overrided);
 	}
 
 	#setValue(value) {
@@ -144,6 +147,7 @@ export class State {
 		if (fallbackToMemory) {
 			this.#memoryOverride = value;
 		}
+		
 		return this.#getOverride();
 	}
 
@@ -174,16 +178,10 @@ export class State {
 
 		this.#source.start();
 		this.isStarted = true;
-
-		if (overrided !== undefined) {
-			this.#source.stop();
-			this.#setValue(overrided);
-		}
-		else {
-			this.#sync();
-		}
-
+		
+		this.#sync(overrided);
 		this.#callHook('start', this.value);
+
 	}
 
 	stop() {
@@ -225,14 +223,11 @@ function normalizeSetOptions(options) {
 		return { memory: true };
 	}
 
-	const stringId = String(options);
-	switch(stringId){
-		case 'true':
-		case 'session':
-			return { session: true };
-		default:
-			return { local: true };
+	if (options === true || options === 'session') {
+		return { session: true };
 	}
+
+	return { local: true };
 
 }
 

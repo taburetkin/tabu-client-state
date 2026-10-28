@@ -29,6 +29,27 @@ describe('StateManager', () => {
 		dom.restore();
 	});
 
+	it('initialize runs on the instance before constructor states are added', () => {
+		const seen = [];
+		const cs = new StateManager({
+			initialize() {
+				seen.push(['init', this instanceof StateManager, 'theme' in this.values]);
+				this.note = (hook, target) => seen.push([hook, target?.id]);
+			},
+			hooks: {
+				beforeAdd(hook, stateOptions) { this.note(hook, stateOptions); },
+				add(hook, state) { this.note(hook, state); },
+			},
+			states: [options('theme')],
+		});
+		assert.equal(cs.get('theme') instanceof State, true);
+		assert.deepEqual(seen, [
+			['init', true, false],
+			['before:add', 'theme'],
+			['add', 'theme'],
+		]);
+	});
+
 	it('does not auto-start constructor states unless autoStartStates is true', () => {
 		const cs = new StateManager({
 			states: { one: options('data-one') },
@@ -95,6 +116,20 @@ describe('StateManager', () => {
 		assert.equal(state instanceof State, true);
 		assert.equal(cs.get('x'), state);
 		assert.equal(cs.get('missing'), undefined);
+	});
+
+	it('states is a snapshot of registered instances, in insertion order', () => {
+		const cs = new StateManager({ attrTarget: new FakeElement() });
+		assert.deepEqual(cs.states(), []);
+		const a = cs.add(options('a'));
+		const b = cs.add(options('b'));
+		const first = cs.states();
+		assert.deepEqual(first, [a, b]);
+		assert.equal(first[0], cs.get('a'));
+		cs.add(options('c'));
+		cs.remove('a');
+		assert.deepEqual(first, [a, b]);
+		assert.deepEqual(cs.states(), [b, cs.get('c')]);
 	});
 
 	it('throws when the id is taken unless replace is set', () => {
@@ -260,10 +295,34 @@ describe('StateManager', () => {
 		cs.start();
 		cs.set(state, 'held');
 		assert.equal(cs.values.ok, 'held');
-		assert.deepEqual(cs.getOverrides(state), { memory: true, session: false, local: false });
+		assert.deepEqual(cs.getOverrides(state), { memory: 'held', session: undefined, local: undefined });
 		assert.equal(cs.hasOverrides('ok'), true);
 		cs.setTarget(state, fakeTarget({ token: 'next' }), true);
 		assert.equal(cs.values.ok, 'held');
+	});
+
+	it('getOverrides without an id is a snapshot of pins in insertion order', () => {
+		withStorages(() => {
+			const cs = new StateManager({ attrTarget: new FakeElement(), storageKeyPrefix: 't.' });
+			cs.add(options('a'));
+			cs.add(options('b'));
+			cs.add(options('c'));
+			cs.start();
+			assert.equal(cs.hasOverrides(), false);
+			assert.equal(cs.getOverrides(), undefined);
+			cs.set('c', 'pin-c');
+			cs.set('a', 'pin-a', false);
+			assert.equal(cs.hasOverrides(), true);
+			assert.deepEqual(cs.getOverrides(), {
+				a: { memory: undefined, session: undefined, local: 'pin-a' },
+				c: { memory: 'pin-c', session: undefined, local: undefined },
+			});
+			assert.deepEqual(Object.keys(cs.getOverrides()), ['a', 'c']);
+			cs.set('a', undefined, false);
+			cs.set('c', undefined);
+			assert.equal(cs.hasOverrides(), false);
+			assert.equal(cs.getOverrides(), undefined);
+		});
 	});
 
 	it('set writes named layers and clears them independently', () => {

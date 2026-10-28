@@ -171,7 +171,7 @@ describe('State', () => {
 		});
 	});
 
-	it('prefers a session override, then local, when starting', () => {
+	it('prefers a sessionStorage override, then localStorage, when starting', () => {
 		withStorages((local, session) => {
 			const el = new FakeElement();
 			session.setItem('t.data-x', stored('from-session'));
@@ -653,20 +653,20 @@ describe('State', () => {
 	});
 
 	describe('overrides', () => {
-		it('reports which layers are set', () => {
+		it('reports the value in each layer', () => {
 			withStorages(() => {
 				const state = liveState(new FakeElement());
 				assert.equal(state.hasOverrides(), false);
 				assert.equal(state.getOverrides(), undefined);
 				state.set('memory');
-				assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+				assert.deepEqual(state.getOverrides(), { memory: 'memory', session: undefined, local: undefined });
 				state.set('session', true);
-				assert.deepEqual(state.getOverrides(), { memory: true, session: true, local: false });
+				assert.deepEqual(state.getOverrides(), { memory: 'memory', session: 'session', local: undefined });
 				state.set('local', false);
-				assert.deepEqual(state.getOverrides(), { memory: true, session: true, local: true });
+				assert.deepEqual(state.getOverrides(), { memory: 'memory', session: 'session', local: 'local' });
 				assert.equal(state.hasOverrides(), true);
 				state.set(undefined);
-				assert.deepEqual(state.getOverrides(), { memory: false, session: true, local: true });
+				assert.deepEqual(state.getOverrides(), { memory: undefined, session: 'session', local: 'local' });
 			});
 		});
 
@@ -722,12 +722,14 @@ describe('State', () => {
 				const state = liveState(new FakeElement());
 				state.start();
 				state.set('from-empty', {});
-				assert.equal(state.getOverrides().memory, true);
+				assert.equal(state.getOverrides().memory, 'from-empty');
 				assert.equal(local.getItem('t.data-x'), null);
 				state.set('from-session', 'session');
 				assert.equal(session.getItem('t.data-x'), stored('from-session'));
-				state.set('from-true-string', 'true');
-				assert.equal(session.getItem('t.data-x'), stored('from-true-string'));
+				state.set('from-true', true);
+				assert.equal(session.getItem('t.data-x'), stored('from-true'));
+				state.set('from-false', false);
+				assert.equal(local.getItem('t.data-x'), stored('from-false'));
 				state.set('from-local', 'local');
 				assert.equal(local.getItem('t.data-x'), stored('from-local'));
 			});
@@ -740,6 +742,7 @@ describe('State', () => {
 				state.set(false, false);
 				assert.equal(state.value, false);
 				assert.equal(state.hasOverrides(), true);
+				assert.deepEqual(state.getOverrides(), { memory: undefined, session: undefined, local: false });
 				assert.equal(local.getItem('t.data-x'), stored(false));
 			});
 		});
@@ -766,7 +769,7 @@ describe('State', () => {
 				state.start();
 				state.set('held', false);
 				assert.equal(state.value, 'held');
-				assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+				assert.deepEqual(state.getOverrides(), { memory: 'held', session: undefined, local: undefined });
 			}, { local: undefined });
 		});
 
@@ -776,7 +779,7 @@ describe('State', () => {
 				state.start();
 				state.set('held', { session: true, local: true });
 				assert.equal(state.value, 'held');
-				assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+				assert.deepEqual(state.getOverrides(), { memory: 'held', session: undefined, local: undefined });
 			}, { local: undefined, session: undefined });
 		});
 
@@ -787,7 +790,7 @@ describe('State', () => {
 				state.set('held', { session: true, local: true });
 				assert.equal(state.value, 'held');
 				assert.equal(session.getItem('t.data-x'), stored('held'));
-				assert.deepEqual(state.getOverrides(), { memory: false, session: true, local: false });
+				assert.deepEqual(state.getOverrides(), { memory: undefined, session: 'held', local: undefined });
 			}, { local: undefined });
 		});
 
@@ -798,7 +801,7 @@ describe('State', () => {
 				state.set('mem');
 				state.set(undefined, false);
 				assert.equal(state.value, 'mem');
-				assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+				assert.deepEqual(state.getOverrides(), { memory: 'mem', session: undefined, local: undefined });
 			}, { local: undefined });
 		});
 
@@ -812,7 +815,7 @@ describe('State', () => {
 					state.start();
 					state.set('held', false);
 					assert.equal(state.value, 'held');
-					assert.deepEqual(state.getOverrides(), { memory: true, session: false, local: false });
+					assert.deepEqual(state.getOverrides(), { memory: 'held', session: undefined, local: undefined });
 					assert.equal(errors.length, 1);
 				}, { local: failingStorage() });
 			} finally {

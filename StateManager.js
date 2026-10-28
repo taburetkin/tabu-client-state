@@ -19,7 +19,7 @@ export class StateManager {
 
 	
 
-	constructor({ states, storageKeyPrefix, attrTarget, stateOptions, hooks, autoStartStates } = {}) {
+	constructor({ states, storageKeyPrefix, attrTarget, stateOptions, hooks, autoStartStates, initialize } = {}) {
 		
 		this.#storageKeyPrefix = storageKeyPrefix ?? DEFAULT_STORAGE_KEY_PREFIX;
 
@@ -43,6 +43,9 @@ export class StateManager {
 		this.#stateOptions = Object.assign({}, stateOptions);
 
 		this.#attrTarget = attrTarget ?? document.documentElement;
+
+		initialize?.call(this);
+
 		if (Array.isArray(states)) {
 			for (const item of states) {
 				this.add(addArg(item));
@@ -120,6 +123,10 @@ export class StateManager {
 		return this.#get(id);
 	}
 
+	states() {
+		return this.#stateKeys().map(id => this.#get(id));
+	}
+
 	set(arg, value, setOptions) {
 		this.#needState(arg).set(value, setOptions);
 	}
@@ -129,10 +136,22 @@ export class StateManager {
 	}
 
 	hasOverrides(arg) {
+		if (arguments.length === 0) {
+			return this.states().some(state => state.hasOverrides());
+		}
 		return this.#state(arg)?.hasOverrides() ?? false;
 	}
 
 	getOverrides(arg) {
+		if (arguments.length === 0) {
+			let map;
+			for (const state of this.states()) {
+				const overrides = state.getOverrides();
+				if (overrides == null) continue;
+				(map ??= {})[state.id] = overrides;
+			}
+			return map;
+		}
 		return this.#state(arg)?.getOverrides();
 	}
 
@@ -195,7 +214,7 @@ export class StateManager {
 
 
 	#stateKeys() {
-		return Reflect.ownKeys(this.#states);
+		return Object.keys(this.#states);
 	}
 
 	#forEachStateKey(action) {
@@ -217,7 +236,7 @@ export class StateManager {
 				return String(prop) in mgr.#states;
 			},
 			ownKeys() {
-				return Reflect.ownKeys(mgr.#states);
+				return Object.keys(mgr.#states);
 			},
 			getOwnPropertyDescriptor(_target, prop) {
 				if (!(String(prop) in mgr.#states)) return;

@@ -43,14 +43,60 @@ The library writes those tokens after the application starts.
 
 ## Why
 
-You decide what to watch. A state is `{ id, value, source }`. `id` names it, `value` returns the token JS branches on, `source` says when to run it again. The runtime writes that token as an HTML attribute. Viewport, workspace, color scheme, hover, and orientation ship as presets if you do not want to write the object yourself — they are the same object `State` and `add` take.
+You decide what to watch. A state is `{ id, value, source }`. `id` names it, `value` returns the token JS branches on, `source` says when to run it again. The runtime writes that token as an HTML attribute.
+
+```js
+import { State } from 'tabu-client-state'
+
+// yours — not a package export. stop() calls cancel() if it exists
+function limit(fn) {
+	let t
+	const wrapped = () => {
+		clearTimeout(t)
+		t = setTimeout(fn, 100)
+	}
+	wrapped.cancel = () => clearTimeout(t)
+	return wrapped
+}
+
+const vp = new State({
+	id: 'vp',                          // required. On a manager this is the values key: cs.values.vp
+	attrName: 'data-vp',               // optional, default: String(id), ex: <html data-vp="xl">
+	attrTarget: document.documentElement, // optional, default: <html>
+	storageKeyPrefix: 'tabu.clientstate.', // optional, default shown
+	value({ target }) {                // required as a function when source has bind/unbind
+		return target.innerWidth < 768 ? 'xs' : 'lg'
+	},
+	attrValue(value) {                 // optional. omit: write the JS value as-is
+		return value                   // null / undefined remove the attribute; '' writes attr=""
+	},
+	source: {                          // optional. omit: manual state
+		target: window,                // optional
+		bind(ctx) {                    // pair with unbind
+			ctx.callback = limit(ctx.callback)
+			ctx.target.addEventListener('resize', ctx.callback)
+		},
+		unbind(ctx) {
+			ctx.target.removeEventListener('resize', ctx.callback)
+		},
+	},
+	hooks: {                           // optional
+		change(value) {
+			console.log(this.id, value)
+		},
+	},
+})
+vp.start()
+vp.value // 'lg' — also <html data-vp="lg">
+```
+
+Viewport, workspace, color scheme, hover, and orientation ship as presets if you do not want to write that object — they return the same options `State` and `add` take.
 
 ```js
 import { State, viewport } from 'tabu-client-state'
 
 const vp = new State(viewport())
 vp.start()
-vp.value // 'lg' — also <html data-vp="lg">
 ```
 
 Several states, one vitrine — a `StateManager`:
@@ -165,9 +211,10 @@ The `xs` + `dark` rules apply on a 1440px desktop window. A test pins the token 
 `@media (max-width: 767px)` and `prefers-color-scheme` are read-only. A person cannot say “compact layout on my ultrawide” or “dark, even if the OS is light”.
 
 ```js
-cs.set('dark', true, false)   // persist dark
-cs.values.vp = 'xs'           // compact, live detect paused
-cs.values.dark = undefined    // back to detect
+cs.set('dark', true, false)      // persist dark (localStorage)
+cs.values.vp = 'xs'              // compact this runtime (memory)
+cs.values.dark = undefined       // memory empty; localStorage still wins
+cs.set('dark', undefined, false) // drop localStorage → back to detect
 ```
 
 The CSS does not change. Persist theme and density; leave viewport live if pinning `lg` on a phone would break the layout. That choice is the app’s.
@@ -250,7 +297,7 @@ const vp = new State(viewport())
 cs.add(viewport())
 ```
 
-`add` returns the `State`. `cs.get('vp')` is the same instance. `get` takes an id, not a state.
+`add` returns the `State`. `cs.get('vp')` is the same instance. `get` takes an id, not a state. `cs.states()` is a snapshot of every instance.
 
 A media query. JS keeps a boolean; the attribute gets the token:
 
@@ -295,7 +342,7 @@ Pin is `state.value = x`, `state.set(x)`, `cs.values.id = x`, or `cs.set(id, x)`
 | construct / `add` without `start` | empty | — | no |
 | `start`, live detect | `value()` | write | if ≠ |
 | `start`, memory pin | keep pin | write | if ≠ |
-| `start`, session / local hit | stored | write | if ≠ |
+| `start`, sessionStorage / localStorage hit | stored | write | if ≠ |
 | pin, started | winner of the layers | write | if ≠ |
 | pin, stopped | winner of the layers | write | no |
 | `start` after that pin | keep winner | write | if ≠ |
@@ -374,9 +421,9 @@ The wrapper is yours — not a package export. `workspace({ limit })` takes the 
 
 ### Read, pin, persist
 
-Three independent layers. Read order: **memory → session → local → live `value()`**. The published value is always the highest layer that is set.
+Three independent layers. Read order: **memory → `sessionStorage` → `localStorage` → live `value()`**. The published value is always the highest layer that is set.
 
-`state.value = 'dark'` and `cs.values.theme = 'dark'` write memory only. `set(value, where)` picks the layers. Omitted `where` is memory. `true` / `'session'` is session. `false` / `'local'` is local. An object names any combination.
+`state.value = 'dark'` and `cs.values.theme = 'dark'` write memory only. `set(value, where)` picks the layers. Omitted `where` is memory. `true` / `'session'` is `sessionStorage`. `false` / `'local'` is `localStorage`. An object names any combination.
 
 ```js
 cs.values.theme = 'dark'                                 // memory
@@ -385,7 +432,7 @@ cs.set('theme', 'dark', false)                           // localStorage
 cs.set('theme', 'night', true)                           // sessionStorage
 cs.set('theme', 'dark', { memory: true, local: true })   // this runtime and every new one
 cs.values.theme = undefined                              // clear memory only
-cs.set('theme', undefined, { session: true })            // clear session; memory / local stay
+cs.set('theme', undefined, { session: true })            // clear sessionStorage; memory / localStorage stay
 cs.set('theme', undefined, { memory: true, session: true, local: true })
 cs.set('hover', false, false)                            // stores boolean false; attribute stays "no"
 ```
@@ -394,9 +441,9 @@ A write that cannot persist (quota, missing API, a value JSON cannot serialize) 
 
 Key: `storageKeyPrefix + id` (default `tabu.clientstate.theme`). What you store is what you read: the JS value, as JSON. A token stays a string; `true` stays a boolean. Not the attribute string. A raw string that is not JSON is warned about and used as the stored value. Value, attribute, and `change` for pin / unlock / start: [the table](#value-attribute-change).
 
-Unavailable storage is swallowed on probe. `destroy` / `remove` do **not** clear storage. A later state with the same `id` has no memory layer; on `start` it picks session, then local.
+Unavailable storage is swallowed on probe. `destroy` / `remove` do **not** clear storage. A later state with the same `id` has no memory layer; on `start` it picks `sessionStorage`, then `localStorage`.
 
-`{ ...cs.values }` copies a snapshot. An unknown id reads as `undefined`; assigning to one throws `unknown state`.
+`{ ...cs.values }` copies a snapshot of values. `cs.getOverrides()` copies pins (`undefined` if none). `cs.hasOverrides()` is whether any state is pinned. An unknown id reads as `undefined`; assigning to one throws `unknown state`.
 
 ### Hooks
 
@@ -418,6 +465,18 @@ const cs = new StateManager({
 			},
 		},
 	},
+})
+```
+
+Constructor `states` fire `before:add` / `add` before `new` returns. A `hooks` slot on the options bag is already in place for those. A bus mixed onto the instance is not — subscribe in `initialize`.
+
+```js
+new StateManager({
+	initialize() {
+		// runs before constructor states are added
+		// a good place to attach an event bus
+	},
+	states: [viewport()],
 })
 ```
 

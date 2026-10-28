@@ -26,10 +26,13 @@ The package exports [`State`](#State), [`StateManager`](#StateManager), [`listen
 	- [methods](#methods)
 		- [add(stateOrOptions[, addOptions])](#add)
 		- [get(id)](#get)
+		- [states()](#states)
 		- [set(stateId, value[, where])](#set)
 		- [setTarget(stateId, target[, dontStart])](#setTarget)
-		- [hasOverrides(stateId)](#hasOverrides)
-		- [getOverrides(stateId)](#getOverrides)
+		- [hasOverrides()](#hasOverrides)
+		- [hasOverrides(stateId)](#hasOverrides-stateId)
+		- [getOverrides()](#getOverrides)
+		- [getOverrides(stateId)](#getOverrides-stateId)
 		- [start()](#start)
 		- [start(stateId)](#start-stateId)
 		- [stop()](#stop)
@@ -55,10 +58,16 @@ The package exports [`State`](#State), [`StateManager`](#StateManager), [`listen
 - [WorkspaceOptions](#WorkspaceOptions)
 - [MediaPresetOptions](#MediaPresetOptions)
 - [Types](#types)
+	- [LimitFn](#LimitFn)
+	- [LimitedFn](#LimitedFn)
+	- [Threshold](#Threshold)
 	- [SourceCtx\<T\>](#SourceCtxT)
 	- [StateOverrides](#StateOverrides)
 	- [StateSetOptions](#StateSetOptions)
 	- [StateSetWhere](#StateSetWhere)
+	- [StateHookName](#StateHookName)
+	- [ManagerHookName](#ManagerHookName)
+	- [StateHookHost](#StateHookHost)
 	- [StateListener](#StateListener)
 
 <a id="State"></a>
@@ -66,9 +75,46 @@ The package exports [`State`](#State), [`StateManager`](#StateManager), [`listen
 # State
 
 ```js
-import { State, viewport } from 'tabu-client-state'
+import { State } from 'tabu-client-state'
 
-const vp = new State(viewport())
+// yours — not a package export. stop() calls cancel() if it exists
+function limit(fn) {
+	let t
+	const wrapped = () => {
+		clearTimeout(t)
+		t = setTimeout(fn, 100)
+	}
+	wrapped.cancel = () => clearTimeout(t)
+	return wrapped
+}
+
+const vp = new State({
+	id: 'vp',                          // required. On a manager this is the values key: cs.values.vp
+	attrName: 'data-vp',               // optional, default: String(id), ex: <html data-vp="xl">
+	attrTarget: document.documentElement, // optional, default: <html>
+	storageKeyPrefix: 'tabu.clientstate.', // optional, default shown
+	value({ target }) {                // required as a function when source has bind/unbind
+		return target.innerWidth < 768 ? 'xs' : 'lg'
+	},
+	attrValue(value) {                 // optional. omit: write the JS value as-is
+		return value                   // null / undefined remove the attribute; '' writes attr=""
+	},
+	source: {                          // optional. omit: manual state
+		target: window,                // optional
+		bind(ctx) {                    // pair with unbind
+			ctx.callback = limit(ctx.callback)
+			ctx.target.addEventListener('resize', ctx.callback)
+		},
+		unbind(ctx) {
+			ctx.target.removeEventListener('resize', ctx.callback)
+		},
+	},
+	hooks: {                           // optional
+		change(value) {
+			console.log(this.id, value)
+		},
+	},
+})
 vp.start()
 vp.value // 'lg' — also <html data-vp="lg">
 ```
@@ -93,6 +139,10 @@ Creates a stopped state. Does not write the attribute. Captures [`attrOriginValu
 
 [`State`](#State)
 
+```js
+const theme = new State({ id: 'theme', value: 'light' })
+```
+
 <a id="State-properties"></a>
 
 ## properties
@@ -101,7 +151,7 @@ Creates a stopped state. Does not write the attribute. Captures [`attrOriginValu
 | --- | --- | --- |
 | `id` | `string` | Storage key. `String` of the constructor `id` |
 | `attrName` | `string` | HTML attribute. Default: `id` |
-| `attrTarget` | `{ getAttribute, setAttribute?, removeAttribute? }` | Node that receives the attribute. Default: `document.documentElement` |
+| `attrTarget` | `Element` | DOM element that receives the attribute. Default: `document.documentElement` |
 | `attrOriginValue` | `string \| null` | Attribute as it was at construct time. [`destroy`](#State-destroy) writes it back |
 | `value` | `unknown` | Live JS value. `undefined` until the first [`start`](#State-start) or [`set`](#State-set). Assignment is [`set`](#State-set)`(newValue)` — memory layer |
 | `isStarted` | `boolean` | `true` after [`start`](#State-start). `false` after [`stop`](#State-stop). Unset before the first start |
@@ -119,9 +169,9 @@ Creates a stopped state. Does not write the attribute. Captures [`attrOriginValu
 
 ### [⬆️](#State-methods) set(value[, where])
 
-Writes or clears override layers. Detect pauses while any layer is set. Read order: memory → session → local → live `value()`. The published value is the highest remaining layer, not the argument you just wrote.
+Writes or clears override layers. Detect pauses while any layer is set. Read order: memory → `sessionStorage` → `localStorage` → live `value()`. The published value is the highest remaining layer, not the argument you just wrote.
 
-Omitted `where` is memory. `true` / `'session'` is session. `false` / `'local'` is local. An object `{ memory, session, local }` names any combination. `undefined` clears the named layers — it is not a write of `undefined` into the value. Clear every layer to restore the live function, the constant, or `undefined` for `{ id }`.
+Omitted `where` is memory. `true` / `'session'` is `sessionStorage`. `false` / `'local'` is `localStorage`. An object `{ memory, session, local }` names any combination. `undefined` clears the named layers — it is not a write of `undefined` into the value. Clear every layer to restore the live function, the constant, or `undefined` for `{ id }`.
 
 A persisted value is stored as JSON and comes back as the same JS value. A raw string that is not JSON is warned about and used as the stored value. A write that cannot persist (quota, missing API, a value JSON cannot serialize) is logged. If every storage you asked for failed, the value is kept in memory for this runtime. Clearing a layer does not fall back. Value, attribute, and [`change`](#StateHooks): [README table](README.md#value-attribute-change).
 
@@ -135,6 +185,14 @@ A persisted value is stored as JSON and comes back as the same JS value. A raw s
 **Returns**
 
 `void`
+
+```js
+vp.set('xs')           // memory
+vp.set('md', false)    // localStorage
+vp.set('lg', true)     // sessionStorage
+vp.set(undefined)      // clear memory
+vp.value = 'sm'        // same as set('sm')
+```
 
 <a id="State-setTarget"></a>
 
@@ -153,6 +211,11 @@ Stops the state, sets a new source target, rebuilds the source. Starts again unl
 
 `void`
 
+```js
+vp.setTarget(document.getElementById('app'))
+vp.setTarget(() => window, true)  // rebuild, stay stopped
+```
+
 <a id="State-hasOverrides"></a>
 
 ### [⬆️](#State-methods) hasOverrides()
@@ -163,25 +226,44 @@ Stops the state, sets a new source target, rebuilds the source. Starts again unl
 
 `boolean`
 
+```js
+vp.hasOverrides()  // false
+vp.set('xs')
+vp.hasOverrides()  // true
+```
+
 <a id="State-getOverrides"></a>
 
 ### [⬆️](#State-methods) getOverrides()
 
-Which layers are set. Omitted when none are.
+The value in each layer. An empty layer is `undefined`. Omitted when none are set.
 
 **Returns**
 
 [`StateOverrides`](#StateOverrides) `| undefined`
 
+```js
+vp.set('xs')
+vp.set('md', false)
+vp.getOverrides()
+// { memory: 'xs', session: undefined, local: 'md' }
+```
+
 <a id="State-start"></a>
 
 ### [⬆️](#State-methods) start()
 
-Starts the state. Writes the attribute. A second start is a no-op. On start (after `bind`): memory, then session, then local, then the live function or constant.
+Starts the state. Writes the attribute. A second start is a no-op. On start (after `bind`): memory, then `sessionStorage`, then `localStorage`, then the live function or constant.
 
 **Returns**
 
 `void`
+
+```js
+vp.start()
+vp.value     // 'lg'
+vp.start()   // no-op
+```
 
 <a id="State-stop"></a>
 
@@ -193,6 +275,11 @@ Stops listeners. The attribute stays. A stop when not started is a no-op.
 
 `void`
 
+```js
+vp.stop()
+vp.value  // still 'lg'; attribute stays
+```
+
 <a id="State-destroy"></a>
 
 ### [⬆️](#State-methods) destroy()
@@ -202,6 +289,11 @@ Stops the state and restores [`attrOriginValue`](#State-properties). Storage is 
 **Returns**
 
 `void`
+
+```js
+vp.destroy()
+vp.start()  // throws: state vp destroyed and can not be used
+```
 
 
 <small><a href="#content">to content</a></small>
@@ -242,6 +334,12 @@ A named hook runs, then `all`, then these observers, then the manager wire.
 
 `void`
 
+```js
+listen(vp, function (hook, state, value) {
+	if (hook === 'change') console.log(state.id, value)
+})
+```
+
 <a id="unlisten"></a>
 
 ## unlisten(state, fn)
@@ -256,6 +354,10 @@ A named hook runs, then `all`, then these observers, then the manager wire.
 **Returns**
 
 `void`
+
+```js
+unlisten(vp, onHook)
+```
 
 
 <small><a href="#content">to content</a></small>
@@ -282,7 +384,7 @@ Most methods take a state id or a [`State`](#State) instance. [`get`](#get) is t
 
 ## constructor([options])
 
-Creates a manager and registers states from `options`. Starts them only when [`autoStartStates`](#properties) is true.
+Creates a manager, runs [`initialize`](#StateManagerOptions) if given, then registers `states`. Starts them only when [`autoStartStates`](#properties) is true.
 
 ### parameters
 
@@ -293,6 +395,16 @@ Creates a manager and registers states from `options`. Starts them only when [`a
 **Returns**
 
 [`StateManager`](#StateManager)
+
+```js
+const cs = new StateManager({
+	initialize() {
+		// runs before constructor states are added
+		// a good place to attach an event bus
+	},
+	states: [viewport(), colorScheme()],
+})
+```
 
 <a id="properties"></a>
 
@@ -310,8 +422,8 @@ Creates a manager and registers states from `options`. Starts them only when [`a
 | `cs.values.vp` | current value, or `undefined` if the id is missing |
 | `'vp' in cs.values` | whether that state exists |
 | `{ ...cs.values }` | snapshot of every current value |
-| `cs.values.vp = 'xs'` | [`set('vp', 'xs')`](#set) — memory layer, beats session and local |
-| `cs.values.vp = undefined` | clear memory only. If session or local remain, that winner is published. If none remain, one live default |
+| `cs.values.vp = 'xs'` | [`set('vp', 'xs')`](#set) — memory layer, beats `sessionStorage` and `localStorage` |
+| `cs.values.vp = undefined` | clear memory only. If `sessionStorage` or `localStorage` remain, that winner is published. If none remain, one live default |
 
 A missing id on assignment throws `unknown state ${id}`. Delete is a no-op.
 
@@ -319,9 +431,9 @@ A missing id on assignment throws `unknown state ${id}`. Delete is a no-op.
 
 ## methods
 
-[add](#add), [get](#get), [set](#set), [setTarget](#setTarget), [hasOverrides](#hasOverrides), [getOverrides](#getOverrides), [start](#start), [stop](#stop), [remove](#remove)
+[add](#add), [get](#get), [states](#states), [set](#set), [setTarget](#setTarget), [hasOverrides](#hasOverrides), [getOverrides](#getOverrides), [start](#start), [stop](#stop), [remove](#remove)
 
-A missing id: [`set`](#set) / [`setTarget`](#setTarget) throw `unknown state ${id}`. [`hasOverrides`](#hasOverrides) is `false`. [`getOverrides`](#getOverrides) is `undefined`. [`get`](#get) is `undefined`. [`start`](#start) / [`stop`](#stop) / [`remove`](#remove) are no-ops.
+A missing id: [`set`](#set) / [`setTarget`](#setTarget) throw `unknown state ${id}`. [`hasOverrides(stateId)`](#hasOverrides-stateId) is `false`. [`getOverrides(stateId)`](#getOverrides-stateId) is `undefined`. [`get`](#get) is `undefined`. [`start`](#start) / [`stop`](#stop) / [`remove`](#remove) are no-ops.
 
 A [`State`](#State) instance that is not in the map: [`set`](#set) / [`setTarget`](#setTarget) / [`start`](#start) / [`stop`](#stop) / override queries run on that instance. [`remove`](#remove) only unlistens it — the occupant of that id is left alone.
 
@@ -350,6 +462,12 @@ When [`autoStartStates`](#properties) is true and `dontStart` is not set, the ne
 
 [`State`](#State)
 
+```js
+const vp = cs.add(viewport())
+cs.add({ id: 'theme', value: 'light' })
+cs.add(hover(), { dontStart: true })
+```
+
 <a id="get"></a>
 
 ### [⬆️](#methods) get(id)
@@ -365,6 +483,26 @@ The state in that slot. Id only — not a [`State`](#State) instance. A missing 
 **Returns**
 
 [`State`](#State) `| undefined`
+
+```js
+cs.get('vp')       // the State
+cs.get('missing')  // undefined
+```
+
+<a id="states"></a>
+
+### [⬆️](#methods) states()
+
+A snapshot of every registered [`State`](#State), in insertion order. Not live — later [`add`](#add) / [`remove`](#remove) do not change the array already returned.
+
+**Returns**
+
+[`State`](#State)`[]`
+
+```js
+cs.states()
+cs.states().filter(state => state.hasOverrides())
+```
 
 <a id="set"></a>
 
@@ -384,6 +522,12 @@ The state in that slot. Id only — not a [`State`](#State) instance. A missing 
 
 `void`
 
+```js
+cs.set('vp', 'xs')
+cs.set(vp, 'md', false)
+cs.values.vp = 'lg'  // memory
+```
+
 <a id="setTarget"></a>
 
 ### [⬆️](#methods) setTarget(stateId, target[, dontStart])
@@ -402,7 +546,26 @@ The state in that slot. Id only — not a [`State`](#State) instance. A missing 
 
 `void`
 
+```js
+cs.setTarget('ws', document.getElementById('main'))
+cs.setTarget('ws', document.body, true)  // stay stopped
+```
+
 <a id="hasOverrides"></a>
+
+### [⬆️](#methods) hasOverrides()
+
+`true` if any registered state has a pin.
+
+**Returns**
+
+`boolean`
+
+```js
+cs.hasOverrides()
+```
+
+<a id="hasOverrides-stateId"></a>
 
 ### [⬆️](#methods) hasOverrides(stateId)
 
@@ -418,7 +581,27 @@ The state in that slot. Id only — not a [`State`](#State) instance. A missing 
 
 `boolean`
 
+```js
+cs.hasOverrides('vp')
+cs.hasOverrides(vp)
+```
+
 <a id="getOverrides"></a>
+
+### [⬆️](#methods) getOverrides()
+
+A snapshot of pins, in insertion order: `{ [id]: `[`StateOverrides`](#StateOverrides)` }`. Only states with a layer. Omitted when none are set.
+
+**Returns**
+
+`Record<string, `[`StateOverrides`](#StateOverrides)`> | undefined`
+
+```js
+cs.getOverrides()
+// { vp: { memory: 'xs', session: undefined, local: 'md' } }
+```
+
+<a id="getOverrides-stateId"></a>
 
 ### [⬆️](#methods) getOverrides(stateId)
 
@@ -434,6 +617,12 @@ The state in that slot. Id only — not a [`State`](#State) instance. A missing 
 
 [`StateOverrides`](#StateOverrides) `| undefined`
 
+```js
+cs.getOverrides('vp')
+// { memory: 'xs', session: undefined, local: 'md' }
+cs.getOverrides(vp)
+```
+
 <a id="start"></a>
 
 ### [⬆️](#methods) start()
@@ -443,6 +632,10 @@ Starts every registered state.
 **Returns**
 
 `void`
+
+```js
+cs.start()
+```
 
 <a id="start-stateId"></a>
 
@@ -460,6 +653,11 @@ Starts that state. A missing id is ignored.
 
 `void`
 
+```js
+cs.start('vp')
+cs.start(vp)
+```
+
 <a id="stop"></a>
 
 ### [⬆️](#methods) stop()
@@ -469,6 +667,10 @@ Stops every registered state. Listeners stop; attributes stay.
 **Returns**
 
 `void`
+
+```js
+cs.stop()
+```
 
 <a id="stop-stateId"></a>
 
@@ -486,6 +688,11 @@ Stops that state. A missing id is ignored.
 
 `void`
 
+```js
+cs.stop('vp')
+cs.stop(vp)
+```
+
 <a id="remove"></a>
 
 ### [⬆️](#methods) remove()
@@ -495,6 +702,10 @@ Destroys every registered state.
 **Returns**
 
 `void`
+
+```js
+cs.remove()
+```
 
 <a id="remove-stateId"></a>
 
@@ -514,6 +725,11 @@ A missing id is ignored. An instance that is not the occupant of its id is unhoo
 **Returns**
 
 `void`
+
+```js
+cs.remove('vp')
+cs.remove(vp, { detach: true })
+```
 
 
 <small><a href="#content">to content</a></small>
@@ -605,6 +821,10 @@ One slot per name. A second `change` on the same bag replaces the first. Many li
 ```js
 new StateManager({
 	attrTarget: document.body,
+	initialize() {
+		// runs before constructor states are added
+		// a good place to attach an event bus
+	},
 })
 ```
 
@@ -618,6 +838,7 @@ Constructor argument of [`StateManager`](#StateManager).
 | `hooks` | [`ManagerHooks`](#ManagerHooks) | no | Manager slots. Omit them and nothing is called |
 | `stateOptions` | `Omit<`[`StateOptions`](#StateOptions)`, 'id'>` | no | Defaults merged into every state this manager builds. A later [`hooks`](#StateOptions) object replaces this bag as a whole. Not applied to a ready [`State`](#State) |
 | `autoStartStates` | `boolean` | no | Start constructor states and later [`add`](#add)s. Default: `false`. Only `true` turns it on |
+| `initialize` | `(this: `[`StateManager`](#StateManager)`) => void` | no | Runs after the instance is wired, before constructor `states` go through [`add`](#add). Subscribe a mixed-in bus here so `before:add` / `add` from those states are heard. Omitted — nothing runs |
 
 <a id="AddOptions"></a>
 
@@ -649,17 +870,40 @@ Second argument of [`remove(stateId)`](#remove-stateId).
 # StateOptions
 
 ```js
+function limit(fn) {
+	let t
+	const wrapped = () => {
+		clearTimeout(t)
+		t = setTimeout(fn, 100)
+	}
+	wrapped.cancel = () => clearTimeout(t)
+	return wrapped
+}
+
 new State({
 	id: 'vp',
 	attrName: 'data-vp',
-	value: ({ target }) => target.innerWidth < 768 ? 'xs' : 'lg',
+	attrTarget: document.documentElement,
+	storageKeyPrefix: 'tabu.clientstate.',
+	value({ target }) {
+		return target.innerWidth < 768 ? 'xs' : 'lg'
+	},
+	attrValue(value) {
+		return value
+	},
 	source: {
 		target: window,
 		bind(ctx) {
+			ctx.callback = limit(ctx.callback)
 			ctx.target.addEventListener('resize', ctx.callback)
 		},
 		unbind(ctx) {
 			ctx.target.removeEventListener('resize', ctx.callback)
+		},
+	},
+	hooks: {
+		change(value) {
+			console.log(this.id, value)
 		},
 	},
 })
@@ -675,7 +919,7 @@ Three shapes: `{ id }` — manual, pin only; with no layers left, [`set`](#State
 | `attrName` | `string` | no | HTML attribute. Default: the stringified `id`. No naming rules — any string. Not an HTML boolean attribute: always `name="value"`, or remove. Prefer `data-*` for custom names. Presets use a short `id` and `data-${id}` (or a literal like `data-color-scheme`). Override `id` and/or `attrName` |
 | `attrTarget` | `Element` | no | DOM element that receives the attribute. Default: `document.documentElement`, or the manager’s `attrTarget` when the manager builds the state |
 | `storageKeyPrefix` | `string` | no | Prepended to the storage key. Default: `'tabu.clientstate.'`, or the manager’s prefix when the manager builds the state |
-| `value` | `((ctx: `[`SourceCtx`](#SourceCtx)`) => unknown) \| string \| boolean \| number` | no | JS value. Required as a function for autodetect. A function is called with the same [`SourceCtx`](#SourceCtx) the source built. A constant is the default: start publishes it, last-layer clear restores it. Omitted (`{ id }`) — no layers left goes to `undefined`. A return of `undefined` is a normal write — empty value, attribute removed if there is no [`attrValue`](#StateOptions) mapping. On start (after `bind`): memory, then session, then local, then this function or constant. Also on a source tick and when no override remains. Return a discrete token or a boolean — not `innerWidth` |
+| `value` | `((ctx: `[`SourceCtx`](#SourceCtx)`) => unknown) \| string \| boolean \| number` | no | JS value. Required as a function for autodetect. A function is called with the same [`SourceCtx`](#SourceCtx) the source built. A constant is the default: start publishes it, last-layer clear restores it. Omitted (`{ id }`) — no layers left goes to `undefined`. A return of `undefined` is a normal write — empty value, attribute removed if there is no [`attrValue`](#StateOptions) mapping. On start (after `bind`): memory, then `sessionStorage`, then `localStorage`, then this function or constant. Also on a source tick and when no override remains. Return a discrete token or a boolean — not `innerWidth` |
 | `attrValue` | `(jsValue: unknown) => unknown` | no | Maps the JS value onto the attribute. Omitted, the JS value is written as-is. `undefined` and `null` remove the attribute. `''` writes `attr=""` |
 | `source` | [`SourceOptions`](#SourceOptions) \| `() => `[`SourceOptions`](#SourceOptions) | no | When to run `value` again. [`bind` / `unbind`](#SourceOptions) are a pair; [`target`](#SourceOptions) is optional. A function is called once. Omitted: manual state |
 | `hooks` | [`StateHooks`](#StateHooks) | no | Per-state slots. The object replaces `stateOptions.hooks` as a whole — names are not merged |
@@ -969,47 +1213,175 @@ Argument of [`hover`](#hover), [`colorScheme`](#colorScheme), and [`orientation`
 
 <a id="LimitFn"></a>
 
-**LimitFn.** `(fn: () => void) => `[`LimitedFn`](#LimitedFn).
+## LimitFn
+
+Wraps a listener. [`workspace`](#workspace) `limit`, and [`stop`](#State-stop) calls `cancel` on the returned [`LimitedFn`](#LimitedFn) if it exists.
+
+**Signature**
+
+```ts
+(fn: () => void) => LimitedFn
+```
+
+**Where**
+
+[`WorkspaceOptions`](#WorkspaceOptions), [`LimitedFn`](#LimitedFn)
 
 <a id="LimitedFn"></a>
 
-**LimitedFn.** `(() => void) & { cancel?: () => void }`.
+## LimitedFn
+
+Return of [`LimitFn`](#LimitFn). Optional `cancel` runs on [`stop`](#State-stop).
+
+**Signature**
+
+```ts
+(() => void) & { cancel?: () => void }
+```
+
+**Where**
+
+[`LimitFn`](#LimitFn)
 
 <a id="Threshold"></a>
 
-**Threshold.** `[token: string, bound: number]`.
+## Threshold
+
+One size token and its bound. [`viewport`](#viewport) and [`workspace`](#workspace) `sizes`.
+
+**Signature**
+
+```ts
+[token: string, bound: number]
+```
+
+**Where**
+
+[`ViewportOptions`](#ViewportOptions), [`WorkspaceOptions`](#WorkspaceOptions)
 
 <a id="SourceCtxT"></a>
 
-**SourceCtx\<T\>.** Shared by `bind` / `unbind` / `value`. Default `T = unknown` — `target` optional, as before. On [`State`](#State) / [`add`](#add), `T` is what `source.target` resolves to. [`setTarget`](#State-setTarget) does not change `T`. Constructor `states` stay `unknown`.
+## SourceCtx\<T\>
+
+Generic [`SourceCtx`](#SourceCtx). Shared by [`SourceOptions`](#SourceOptions) `bind` / `unbind` and [`StateOptions`](#StateOptions) `value`. On [`State`](#State) / [`add`](#add), `T` is `source.target`. [`setTarget`](#State-setTarget) does not change `T`. Constructor [`states`](#StateManagerOptions) stay `unknown`.
+
+Default `T = unknown` — `target` optional, as before.
+
+**Where**
+
+[`StateOptions`](#StateOptions), [`SourceOptions`](#SourceOptions), [`SourceCtx`](#SourceCtx)
 
 <a id="StateOverrides"></a>
 
-**StateOverrides.** `{ memory: boolean, session: boolean, local: boolean }`. Return of `getOverrides()`. Omitted when no layer is set.
+## StateOverrides
+
+Return of [`State.getOverrides`](#State-getOverrides) and [`getOverrides`](#getOverrides). The stored JS value per layer; `undefined` if that layer is empty. The whole object is omitted when no layer is set.
+
+**Signature**
+
+```ts
+{ memory: unknown, session: unknown, local: unknown }
+```
+
+**Where**
+
+[`State.getOverrides`](#State-getOverrides), [`getOverrides()`](#getOverrides), [`getOverrides(stateId)`](#getOverrides-stateId)
 
 <a id="StateSetOptions"></a>
 
-**StateSetOptions.** `{ memory?: boolean, session?: boolean, local?: boolean }`. Named layers for [`set`](#State-set). Empty object is treated as memory.
+## StateSetOptions
+
+Named layers for [`set`](#State-set). Empty object is treated as memory.
+
+**Signature**
+
+```ts
+{ memory?: boolean, session?: boolean, local?: boolean }
+```
+
+**Where**
+
+[`State.set`](#State-set), [`StateSetWhere`](#StateSetWhere)
 
 <a id="StateSetWhere"></a>
 
-**StateSetWhere.** `boolean \| 'session' \| 'local' \| 'true' \| `[`StateSetOptions`](#StateSetOptions). Omitted — memory. `true` / `'session'` — session. `false` / `'local'` — local.
+## StateSetWhere
+
+Second argument of [`set`](#State-set). Omitted — memory. `true` / `'session'` — `sessionStorage`. `false` / `'local'` — `localStorage`. Object — [`StateSetOptions`](#StateSetOptions).
+
+**Signature**
+
+```ts
+boolean | 'session' | 'local' | StateSetOptions
+```
+
+**Where**
+
+[`State.set`](#State-set), [`StateManager.set`](#set)
 
 <a id="StateHookName"></a>
 
-**StateHookName.** `'before:start' \| 'start' \| 'before:stop' \| 'stop' \| 'before:destroy' \| 'destroy' \| 'change'`.
+## StateHookName
+
+Colon names of [`StateHooks`](#StateHooks).
+
+**Signature**
+
+```ts
+'before:start' | 'start' | 'before:stop' | 'stop' | 'before:destroy' | 'destroy' | 'change'
+```
+
+**Where**
+
+[`StateHooks`](#StateHooks), [`StateListener`](#StateListener)
 
 <a id="ManagerHookName"></a>
 
-**ManagerHookName.** `'before:add' \| 'add' \| 'before:detach' \| 'detach' \| 'before:state:start' \| 'state:start' \| 'before:state:stop' \| 'state:stop' \| 'before:state:destroy' \| 'state:destroy' \| 'state:change'`.
+## ManagerHookName
+
+Colon names of [`ManagerHooks`](#ManagerHooks).
+
+**Signature**
+
+```ts
+'before:add' | 'add' | 'before:detach' | 'detach' | 'before:state:start' | 'state:start' | 'before:state:stop' | 'state:stop' | 'before:state:destroy' | 'state:destroy' | 'state:change'
+```
+
+**Where**
+
+[`ManagerHooks`](#ManagerHooks)
 
 <a id="StateHookHost"></a>
 
-**StateHookHost.** `{ id: string, value: unknown, isStarted?: boolean, isDestroyed?: boolean }`. `this` inside [`StateHooks`](#StateHooks).
+## StateHookHost
+
+`this` inside [`StateHooks`](#StateHooks).
+
+**Signature**
+
+```ts
+{ id: string, value: unknown, isStarted?: boolean, isDestroyed?: boolean }
+```
+
+**Where**
+
+[`StateHooks`](#StateHooks)
 
 <a id="StateListener"></a>
 
-**StateListener.** `(this: `[`State`](#State)`, hook: `[`StateHookName`](#StateHookName)`, state: `[`State`](#State)`, ...args: unknown[]) => void`. Argument of [`listen`](#listen) / [`unlisten`](#unlisten).
+## StateListener
+
+Argument of [`listen`](#listen) / [`unlisten`](#unlisten). `this` is the [`State`](#State). The hook name is [`StateHookName`](#StateHookName).
+
+**Signature**
+
+```ts
+(this: State, hook: StateHookName, state: State, ...args: unknown[]) => void
+```
+
+**Where**
+
+[`listen`](#listen-fn), [`unlisten`](#unlisten)
 
 
 <small><a href="#content">to content</a></small>

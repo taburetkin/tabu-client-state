@@ -48,10 +48,10 @@ void pkg.orientation;
 const _config: StateOptions = viewport();
 const _where: StateSetWhere = { memory: true, session: true };
 const _layers: StateSetOptions = { local: true };
-const _flags: StateOverrides = { memory: true, session: false, local: false };
+const _overrides: StateOverrides = { memory: 'dark', session: undefined, local: false };
 void _where;
 void _layers;
-void _flags;
+void _overrides;
 const _hooks: StateHooks = { change() {} };
 const _mgrHooks: ManagerHooks = { stateChange() {} };
 const _addOpts: AddOptions = { replace: true, dontStart: true };
@@ -59,6 +59,9 @@ void _addOpts;
 const _hookName: StateHookName = 'before:start';
 const _mgrHookName: ManagerHookName = 'before:state:start';
 const _opts: StateManagerOptions = {
+	initialize() {
+		void this.values;
+	},
 	autoStartStates: true,
 	states: [_config],
 	attrTarget: document.body,

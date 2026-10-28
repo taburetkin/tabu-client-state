@@ -1,6 +1,7 @@
 import type { SourceCtx, SourceOptions } from './source.js';
 import type { StateHookName, StateHooks, ToCamelCase } from './hooks.js';
 
+/** DOM `Element` in the app. Structural so tests can pass a fake. */
 type AttrTarget = {
 	getAttribute(name: string): string | null;
 	setAttribute?(name: string, value: string): void;
@@ -8,9 +9,9 @@ type AttrTarget = {
 };
 
 export type StateOverrides = {
-	memory: boolean;
-	session: boolean;
-	local: boolean;
+	memory: unknown;
+	session: unknown;
+	local: unknown;
 };
 
 export type StateSetOptions = {
@@ -19,7 +20,7 @@ export type StateSetOptions = {
 	local?: boolean;
 };
 
-export type StateSetWhere = boolean | 'session' | 'local' | 'true' | StateSetOptions;
+export type StateSetWhere = boolean | 'session' | 'local' | StateSetOptions;
 
 export type StateOptions<T = unknown> = {
 	id: any;
@@ -39,6 +40,7 @@ type StateInit<T = unknown> = Omit<StateOptions<T>, 'attrTarget'> & {
 export class State {
 	id: string;
 	attrName: string;
+	/** DOM `Element`. Structural type is for tests; pass an element in the app. */
 	attrTarget: AttrTarget;
 	attrOriginValue: string | null;
 	get value(): unknown;

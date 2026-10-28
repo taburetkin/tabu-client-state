@@ -39,6 +39,7 @@ The library writes those tokens after the application starts.
 	- [Presets](#presets)
 	- [App wrapper](#app-wrapper)
 	- [More CSS](#more-css)
+	- [Frameworks](#frameworks)
 
 ## Why
 
@@ -567,6 +568,88 @@ html[data-vp="xs"][data-color-scheme="dark"] .tooltip {
 
 html[data-vp="lg"][data-ws="xs"] .rail {
 	position: absolute;
+}
+```
+
+### Frameworks
+
+The door is [`listen` / `unlisten`](#hooks) plus a read of `cs.values[id]` or `state.value`. These snippets were run against the live package (mount, `set`, unmount / unsubscribe).
+
+**React** — `useSyncExternalStore`:
+
+```js
+import { useCallback, useSyncExternalStore } from 'react'
+import { listen, unlisten } from 'tabu-client-state'
+
+export function useClientState(cs, stateId) {
+	const state = cs.get(stateId)
+	const subscribe = useCallback((onStoreChange) => {
+		if (!state) return () => {}
+		listen(state, onStoreChange)
+		return () => unlisten(state, onStoreChange)
+	}, [state])
+	const getSnapshot = useCallback(
+		() => cs.values[stateId],
+		[cs, stateId],
+	)
+	return useSyncExternalStore(subscribe, getSnapshot)
+}
+```
+
+**Vue** — composable, call from `setup()`:
+
+```js
+import { onUnmounted, shallowRef } from 'vue'
+import { listen, unlisten } from 'tabu-client-state'
+
+export function useClientState(cs, stateId) {
+	const state = cs.get(stateId)
+	const value = shallowRef(cs.values[stateId])
+	const onStoreChange = () => {
+		value.value = cs.values[stateId]
+	}
+	if (state) listen(state, onStoreChange)
+	onUnmounted(() => {
+		if (state) unlisten(state, onStoreChange)
+	})
+	return value
+}
+```
+
+**Angular** — a `signal`, call from a constructor / injection context:
+
+```ts
+import { DestroyRef, inject, signal } from '@angular/core'
+import { listen, unlisten } from 'tabu-client-state'
+
+export function useClientState(cs, stateId) {
+	const state = cs.get(stateId)
+	const value = signal(cs.values[stateId])
+	const onStoreChange = () => {
+		value.set(cs.values[stateId])
+	}
+	if (state) listen(state, onStoreChange)
+	inject(DestroyRef).onDestroy(() => {
+		if (state) unlisten(state, onStoreChange)
+	})
+	return value
+}
+```
+
+**Svelte** — a store; in a component `$theme`:
+
+```js
+import { readable } from 'svelte/store'
+import { listen, unlisten } from 'tabu-client-state'
+
+export function clientStateStore(cs, stateId) {
+	const state = cs.get(stateId)
+	return readable(cs.values[stateId], (set) => {
+		if (!state) return
+		const onStoreChange = () => set(cs.values[stateId])
+		listen(state, onStoreChange)
+		return () => unlisten(state, onStoreChange)
+	})
 }
 ```
 

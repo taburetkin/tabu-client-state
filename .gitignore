@@ -37,6 +37,7 @@ Desktop.ini
 
 # Local playground (Vite app, not part of the library)
 sandbox/
+sandbox-ng/
 
 # Internal leftovers (not for git or npm)
 .deprecated

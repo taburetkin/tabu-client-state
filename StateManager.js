@@ -81,12 +81,12 @@ export class StateManager {
 		let stateId = requireId(stateOptions?.id);
 
 		let foreign = asState(stateOptions);
+		let exist = this.#get(stateId);
+		if (foreign && exist === foreign) return exist;
+
 		this.#callHook('before:add', stateOptions, addOptions);
 		
-		let exist = this.#get(stateId);
 		if (exist) {
-			
-			if (exist === foreign) return exist;
 			
 			if (!replace) {
 				throw new Error(`state with id "${stateId}" already exists. use { replace: true, detach: true/false } option for auto removing/destroying`);

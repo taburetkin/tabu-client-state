@@ -122,6 +122,24 @@ describe('hooks', () => {
 		assert.equal(all.every(row => row[2] === true), true);
 	});
 
+	it('same instance in the slot does not fire add hooks', () => {
+		const seen = [];
+		const el = new FakeElement();
+		const cs = new StateManager({
+			attrTarget: el,
+			hooks: {
+				beforeAdd() { seen.push('before:add'); },
+				add() { seen.push('add'); },
+			},
+		});
+		const state = cs.add(options('x'));
+		assert.deepEqual(seen, ['before:add', 'add']);
+		seen.length = 0;
+		assert.equal(cs.add(state), state);
+		assert.equal(cs.add(state, { replace: true }), state);
+		assert.deepEqual(seen, []);
+	});
+
 	it('detach hooks fire when the state is unhooked, not destroyed', () => {
 		const seen = [];
 		const el = new FakeElement();
